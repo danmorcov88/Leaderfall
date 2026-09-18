@@ -1,0 +1,34 @@
+name: double-fault
+description: The primary dies, and one replica dies during the election. The last node must still become leader.
+tags: [advanced]
+cluster:
+  patroni_profile: default
+  synchronous_mode: false
+workload:
+  rate_per_sec: 50
+  warmup_sec: 15
+steps:
+  - fault: kill
+    target: primary
+    signal: SIGKILL
+  - hold_sec: 10                  # inside the lease window: the election has not happened yet
+  - action: kill
+    target: any_replica
+    signal: SIGKILL
+  - wait_for: new_leader
+    timeout_sec: 90
+  - wait_for: writes_ok
+    timeout_sec: 60
+  - hold_sec: 10
+  - action: start
+    target: failed_node
+  - action: start
+    target: failed_node_2
+  - wait_for: cluster_healthy
+    timeout_sec: 240
+expect:
+  failover: true
+  rto_write_sec_max: 45
+  lost_acked_commits_max: null
+  split_brain: false
+  final_topology: 1-leader-2-replicas

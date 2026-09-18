@@ -1,0 +1,40 @@
+name: lagging-replica-stale-optime
+description: Like lagging-replica-failover, but the primary dies within one loop_wait of writing the WAL. Patroni compares lag with the leader LSN last written to the DCS, so it cannot see lag younger than a loop. Report only.
+tags: [advanced]
+cluster:
+  patroni_profile: default
+  synchronous_mode: false
+  maximum_lag_on_failover: 16384  # 16 kB; the primary writes far more than that in 15 s
+workload:
+  rate_per_sec: 50
+  warmup_sec: 15
+steps:
+  - fault: pause
+    target: any_replica
+  - action: pause
+    target: any_replica            # resolves to the other replica: the first is already paused
+  - action: write_wal              # far more WAL than a frozen replica's TCP buffer can hold
+    mb: 16
+  - action: kill                   # no hold: the DCS still holds the LSN from before the bulk write
+    target: primary
+    signal: SIGKILL
+  - action: unpause
+    target: failed_node
+  - action: unpause
+    target: failed_node_2
+  - wait_for: writes_ok            # a lagging replica gets promoted; commits are lost
+    timeout_sec: 120
+  - hold_sec: 10
+  - action: start
+    target: old_primary
+  - wait_for: cluster_healthy
+    timeout_sec: 240
+expect:
+  failover: null                   # reported: a lagging replica is promoted
+  detection_sec_max: null
+  rto_write_sec_max: null
+  rto_read_sec_max: null
+  rejoin_sec_max: null
+  lost_acked_commits_max: null     # reported: this is the point of the scenario
+  split_brain: false
+  final_topology: 1-leader-2-replicas

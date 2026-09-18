@@ -1,0 +1,28 @@
+name: sync-mode-primary-sigkill
+description: Same as primary-sigkill with synchronous replication on. Every acked commit must survive.
+tags: [advanced, sync]
+cluster:
+  patroni_profile: default
+  synchronous_mode: on
+workload:
+  rate_per_sec: 50
+  warmup_sec: 15
+steps:
+  - fault: kill
+    target: primary
+    signal: SIGKILL
+  - wait_for: new_leader
+    timeout_sec: 90
+  - wait_for: writes_ok
+    timeout_sec: 60
+  - hold_sec: 10
+  - action: start
+    target: failed_node
+  - wait_for: node_streaming
+    timeout_sec: 180
+expect:
+  failover: true
+  rto_write_sec_max: 45
+  lost_acked_commits_max: 0
+  split_brain: false
+  final_topology: 1-leader-2-replicas

@@ -1,0 +1,34 @@
+name: primary-frozen
+description: Freeze the primary (docker pause) for longer than ttl, then thaw it. It wakes up believing it is still the leader. The split-brain test; see the runbook for the watchdog limit.
+tags: [advanced]
+cluster:
+  patroni_profile: default
+  synchronous_mode: false
+workload:
+  rate_per_sec: 50
+  warmup_sec: 15
+steps:
+  - fault: pause
+    target: primary
+  - wait_for: new_leader
+    timeout_sec: 90
+  - wait_for: writes_ok
+    timeout_sec: 60
+  - hold_sec: 10                  # the new primary takes writes while the old one is still frozen
+  - action: unpause
+    target: failed_node
+  - wait_for: node_fenced         # the thawed old primary must give up
+    target: failed_node
+    timeout_sec: 90
+  - wait_for: node_streaming
+    timeout_sec: 180
+expect:
+  failover: true
+  rto_write_sec_max: 45
+  lost_acked_commits_max: null    # reported: writes the thawed primary may still have accepted
+  demotion_sec_max: null          # reported: measured from the fault, so it includes the freeze
+  # Reported, not enforced. Without a watchdog the thawed primary DOES accept writes for
+  # about one Patroni loop before it notices it lost the lock. Containers cannot use the
+  # kernel watchdog that would prevent this; see docs/runbooks/primary-frozen.md.
+  split_brain: null
+  final_topology: 1-leader-2-replicas

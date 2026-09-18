@@ -1,0 +1,28 @@
+name: sync-replica-loss
+description: Synchronous mode on; the sync standby dies. Patroni must move the sync role to the other replica; writes stall until it does.
+tags: [advanced, sync]
+cluster:
+  patroni_profile: default
+  synchronous_mode: on
+workload:
+  rate_per_sec: 50
+  warmup_sec: 15
+steps:
+  - fault: kill
+    target: sync_replica
+    signal: SIGKILL
+  - wait_for: writes_ok
+    timeout_sec: 90
+  - hold_sec: 15
+  - action: start
+    target: failed_node
+  - wait_for: cluster_healthy
+    timeout_sec: 180
+expect:
+  failover: false
+  detection_sec_max: null
+  rto_write_sec_max: 30
+  ack_gap_sec_max: 15             # commits stall (no errors) until Patroni re-picks the sync standby
+  lost_acked_commits_max: 0
+  split_brain: false
+  final_topology: 1-leader-2-replicas
