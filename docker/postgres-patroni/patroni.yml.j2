@@ -1,0 +1,75 @@
+# Rendered at container start by render-patroni-config. Do not edit the rendered file.
+#
+# The `bootstrap.dcs` block is written to etcd only once, when the cluster is
+# first created. After that the values live in the DCS and can be changed at
+# run time with PATCH /config. The harness does that on `leaderfall up` so the
+# running cluster always matches the requested profile.
+
+scope: {{ scope }}
+name: {{ name }}
+
+log:
+  level: INFO
+  format: "%(asctime)s %(levelname)s: %(message)s"
+
+restapi:
+  listen: 0.0.0.0:8008
+  connect_address: {{ name }}:8008
+
+etcd3:
+  hosts: {{ etcd_hosts }}
+
+bootstrap:
+  dcs:
+    ttl: {{ ttl }}
+    loop_wait: {{ loop_wait }}
+    retry_timeout: {{ retry_timeout }}
+    maximum_lag_on_failover: {{ maximum_lag_on_failover }}
+    synchronous_mode: {{ synchronous_mode }}
+    synchronous_mode_strict: {{ synchronous_mode_strict }}
+    failsafe_mode: false
+    postgresql:
+      use_pg_rewind: true
+      use_slots: true
+      parameters:
+        wal_level: replica
+        hot_standby: "on"
+        wal_log_hints: "on"
+        max_connections: 100
+        max_wal_senders: 10
+        max_replication_slots: 10
+        wal_keep_size: 256MB
+        synchronous_commit: "on"
+  initdb:
+    - encoding: UTF8
+    - data-checksums
+
+postgresql:
+  listen: 0.0.0.0:5432
+  connect_address: {{ name }}:5432
+  data_dir: /var/lib/postgresql/data/pgdata
+  bin_dir: /usr/lib/postgresql/17/bin
+  pgpass: /tmp/pgpass
+  authentication:
+    superuser:
+      username: postgres
+      password: {{ superuser_password }}
+    replication:
+      username: replicator
+      password: {{ replication_password }}
+  parameters:
+    unix_socket_directories: /var/run/postgresql
+    password_encryption: scram-sha-256
+    log_line_prefix: "%m [%p] %u@%d "
+    log_connections: "off"
+    log_checkpoints: "on"
+  pg_hba:
+    - local all all trust
+    - host replication replicator 0.0.0.0/0 scram-sha-256
+    - host all all 0.0.0.0/0 scram-sha-256
+
+tags:
+  nofailover: false
+  noloadbalance: false
+  clonefrom: false
+  nosync: false

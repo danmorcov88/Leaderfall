@@ -51,8 +51,8 @@ chaos-all: install ## Run the whole suite (TAG=core|advanced|all)
 report: install ## Build Markdown + HTML report from the last run
 	$(LF) report
 
-down: install ## Stop the cluster (keeps volumes)
-	$(LF) down
+down: install ## Stop the cluster (VOLUMES=1 also deletes the data)
+	$(LF) down $(if $(VOLUMES),--volumes,)
 
 clean: ## Remove the venv and caches
 	rm -rf $(VENV) .mypy_cache .ruff_cache .pytest_cache

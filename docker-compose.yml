@@ -1,0 +1,154 @@
+# Leaderfall cluster: 3 x (PostgreSQL 17 + Patroni), 3 x etcd, 1 x HAProxy.
+#
+# The LEADERFALL_* values below are the Patroni bootstrap config, written to etcd once
+# when the cluster is first created. They match the `default` profile with sync off.
+# `leaderfall up --profile/--sync` changes the running cluster through Patroni's
+# PATCH /config, so the Compose file never has to change and containers are never
+# recreated just to switch profile.
+#
+# Host ports (Docker Desktop and Linux):
+#   5000 / 5001 / 7000       HAProxy writes / reads / stats
+#   5441 / 5442 / 5443       PostgreSQL on pg-1 / pg-2 / pg-3 (direct, for ground-truth checks)
+#   8011 / 8012 / 8013       Patroni REST on pg-1 / pg-2 / pg-3
+#   2381 / 2382 / 2383       etcd client API on etcd-1 / etcd-2 / etcd-3
+
+name: leaderfall
+
+x-etcd: &etcd
+  image: quay.io/coreos/etcd:v3.5.33
+  restart: unless-stopped
+  networks: [cluster]
+  healthcheck:
+    test: ["CMD", "etcdctl", "endpoint", "health"]
+    interval: 2s
+    timeout: 2s
+    retries: 15
+
+x-etcd-env: &etcd-env
+  ETCD_DATA_DIR: /etcd-data
+  ETCD_LISTEN_PEER_URLS: http://0.0.0.0:2380
+  ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+  ETCD_INITIAL_CLUSTER: etcd-1=http://etcd-1:2380,etcd-2=http://etcd-2:2380,etcd-3=http://etcd-3:2380
+  ETCD_INITIAL_CLUSTER_STATE: new
+  ETCD_INITIAL_CLUSTER_TOKEN: leaderfall-etcd
+  ETCD_AUTO_COMPACTION_MODE: revision
+  ETCD_AUTO_COMPACTION_RETENTION: "1000"
+
+x-pg: &pg
+  # Only pg-1 carries the `build` key; the other two reuse the built image.
+  image: leaderfall/postgres-patroni:17.11-4.1.5
+  restart: unless-stopped
+  networks: [cluster]
+  depends_on:
+    etcd-1: { condition: service_healthy }
+    etcd-2: { condition: service_healthy }
+    etcd-3: { condition: service_healthy }
+  healthcheck:
+    test: ["CMD", "curl", "-sf", "http://localhost:8008/health"]
+    interval: 2s
+    timeout: 2s
+    retries: 30
+    start_period: 20s
+
+x-pg-env: &pg-env
+  LEADERFALL_SCOPE: leaderfall
+  LEADERFALL_ETCD_HOSTS: etcd-1:2379,etcd-2:2379,etcd-3:2379
+  LEADERFALL_TTL: "30"
+  LEADERFALL_LOOP_WAIT: "10"
+  LEADERFALL_RETRY_TIMEOUT: "10"
+  LEADERFALL_MAX_LAG: "1048576"
+  LEADERFALL_SYNC_MODE: "off"
+  LEADERFALL_SYNC_STRICT: "false"
+  LEADERFALL_SUPERUSER_PASSWORD: ${LEADERFALL_SUPERUSER_PASSWORD:-postgres}
+  LEADERFALL_REPLICATION_PASSWORD: ${LEADERFALL_REPLICATION_PASSWORD:-replicator}
+
+services:
+  etcd-1:
+    <<: *etcd
+    container_name: leaderfall-etcd-1
+    hostname: etcd-1
+    environment:
+      <<: *etcd-env
+      ETCD_NAME: etcd-1
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://etcd-1:2380
+      ETCD_ADVERTISE_CLIENT_URLS: http://etcd-1:2379
+    volumes: [etcd-1:/etcd-data]
+    ports: ["2381:2379"]
+
+  etcd-2:
+    <<: *etcd
+    container_name: leaderfall-etcd-2
+    hostname: etcd-2
+    environment:
+      <<: *etcd-env
+      ETCD_NAME: etcd-2
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://etcd-2:2380
+      ETCD_ADVERTISE_CLIENT_URLS: http://etcd-2:2379
+    volumes: [etcd-2:/etcd-data]
+    ports: ["2382:2379"]
+
+  etcd-3:
+    <<: *etcd
+    container_name: leaderfall-etcd-3
+    hostname: etcd-3
+    environment:
+      <<: *etcd-env
+      ETCD_NAME: etcd-3
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://etcd-3:2380
+      ETCD_ADVERTISE_CLIENT_URLS: http://etcd-3:2379
+    volumes: [etcd-3:/etcd-data]
+    ports: ["2383:2379"]
+
+  pg-1:
+    <<: *pg
+    build: ./docker/postgres-patroni
+    container_name: leaderfall-pg-1
+    hostname: pg-1
+    environment:
+      <<: *pg-env
+      PATRONI_NAME: pg-1
+    volumes: [pg-1:/var/lib/postgresql/data]
+    ports: ["5441:5432", "8011:8008"]
+
+  pg-2:
+    <<: *pg
+    container_name: leaderfall-pg-2
+    hostname: pg-2
+    environment:
+      <<: *pg-env
+      PATRONI_NAME: pg-2
+    volumes: [pg-2:/var/lib/postgresql/data]
+    ports: ["5442:5432", "8012:8008"]
+
+  pg-3:
+    <<: *pg
+    container_name: leaderfall-pg-3
+    hostname: pg-3
+    environment:
+      <<: *pg-env
+      PATRONI_NAME: pg-3
+    volumes: [pg-3:/var/lib/postgresql/data]
+    ports: ["5443:5432", "8013:8008"]
+
+  haproxy:
+    image: haproxy:3.2.23
+    container_name: leaderfall-haproxy
+    hostname: haproxy
+    restart: unless-stopped
+    networks: [cluster]
+    volumes:
+      - ./docker/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    ports: ["5000:5000", "5001:5001", "7000:7000"]
+    depends_on: [pg-1, pg-2, pg-3]
+
+networks:
+  cluster:
+    name: leaderfall
+
+volumes:
+  etcd-1:
+  etcd-2:
+  etcd-3:
+  pg-1:
+  pg-2:
+  pg-3:
