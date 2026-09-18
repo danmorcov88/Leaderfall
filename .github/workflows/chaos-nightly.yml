@@ -68,6 +68,9 @@ jobs:
           if git diff --quiet README.md; then echo "README unchanged"; exit 0; fi
           git add README.md
           git commit -m "docs: nightly results $(date -u +%Y-%m-%d)"
+          # main may have moved during the 15-minute suite: rebase, then push.
+          git fetch origin main
+          git rebase origin/main
           git push origin HEAD:main
 
       - name: Stop the cluster
