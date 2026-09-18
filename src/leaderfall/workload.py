@@ -135,22 +135,22 @@ class _PacedThread(threading.Thread):
         super().__init__(name=name, daemon=True)
         self.clock = clock
         self.period = 1.0 / rate_per_sec
-        self._stop = threading.Event()
+        self._stop_event = threading.Event()
         self.exception: BaseException | None = None
 
     def stop(self, join_timeout: float = 10.0) -> None:
-        self._stop.set()
+        self._stop_event.set()
         self.join(join_timeout)
 
     def run(self) -> None:
         try:
             next_tick = time.monotonic()
-            while not self._stop.is_set():
+            while not self._stop_event.is_set():
                 self.tick()
                 next_tick += self.period
                 delay = next_tick - time.monotonic()
                 if delay > 0:
-                    self._stop.wait(delay)
+                    self._stop_event.wait(delay)
                 else:
                     next_tick = time.monotonic()  # fell behind: do not try to catch up
         except BaseException as exc:  # stored for the runner to report; the thread just ends
