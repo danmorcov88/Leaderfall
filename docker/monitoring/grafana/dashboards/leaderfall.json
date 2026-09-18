@@ -30,7 +30,7 @@
   "panels": [
     {
       "type": "state-timeline",
-      "title": "Role per node (Patroni)",
+      "title": "Role per node (green = primary, blue = replica, red = down)",
       "gridPos": {
         "x": 0,
         "y": 0,
@@ -95,7 +95,10 @@
       "options": {
         "showValue": "never",
         "mergeValues": true,
-        "rowHeight": 0.8
+        "rowHeight": 0.8,
+        "legend": {
+          "showLegend": false
+        }
       }
     },
     {
@@ -158,7 +161,7 @@
     },
     {
       "type": "state-timeline",
-      "title": "HAProxy backend servers (1 = UP)",
+      "title": "HAProxy backend servers (green = UP, red = DOWN)",
       "gridPos": {
         "x": 16,
         "y": 6,
@@ -214,7 +217,10 @@
       },
       "options": {
         "showValue": "never",
-        "mergeValues": true
+        "mergeValues": true,
+        "legend": {
+          "showLegend": false
+        }
       }
     },
     {
