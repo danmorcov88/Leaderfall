@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>leaderfall: suite core,advanced</title>
+<style>:root { --fg: #1c1e21; --muted: #667085; --line: #e4e7ec; --pass: #157f3b; --fail: #b42318; --bg: #fff; --card: #f8fafc; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 2rem; font: 15px/1.5 "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--fg); background: var(--bg); max-width: 1100px; margin-inline: auto; }
+h1 { font-size: 1.6rem; margin: 0 0 .25rem; }
+h2 { font-size: 1.15rem; margin: 2rem 0 .5rem; border-bottom: 1px solid var(--line); padding-bottom: .25rem; }
+.sub { color: var(--muted); margin: 0 0 1.5rem; }
+table { border-collapse: collapse; width: 100%; margin: .5rem 0 1rem; font-size: 14px; }
+th, td { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.pass { color: var(--pass); font-weight: 600; }
+.fail { color: var(--fail); font-weight: 600; }
+.badge { display: inline-block; padding: .1rem .5rem; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.badge.pass { background: #e6f4ea; }
+.badge.fail { background: #fdecea; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .75rem; margin: 1rem 0; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: .75rem; }
+.card .v { font-size: 1.4rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.card .k { color: var(--muted); font-size: 12px; }
+svg text { font: 12px "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+code { background: var(--card); padding: .1rem .3rem; border-radius: 4px; font-size: 13px; }
+footer { color: var(--muted); font-size: 12px; margin-top: 3rem; }
+a { color: #175cd3; }
+</style>
+</head>
+<body>
+<h1>leaderfall suite <code>core,advanced</code> <span class="badge fail">FAIL</span></h1>
+<p class="sub">2026-09-18T12:07:48+00:00 → 2026-09-18T12:24:04+00:00 · 16 scenarios · 15 passed<br>
+postgresql 17.11 (Debian 17.11-1.pgdg13+2) · patroni 4.1.5 · etcd_image quay.io/coreos/etcd:v3.5.33 · haproxy_image haproxy:3.2.23 · postgres_image leaderfall/postgres-patroni:17.11-4.1.5 · host Windows-10-10.0.19045-SP0, 12 CPUs</p>
+
+<table>
+<tr><th>scenario</th><th>profile / sync</th><th>result</th><th class="num">detection</th><th class="num">RTO write</th><th class="num">stall</th><th class="num">read-only</th><th class="num">RTO read</th><th class="num">lost</th><th class="num">unknown</th><th>split brain</th><th class="num">fenced</th><th class="num">rejoin</th><th>failed checks</th></tr>
+
+<tr>
+<td><a href="double-fault/report.html">double-fault</a></td>
+<td>default / off</td>
+<td class="pass">pass</td>
+<td class="num">34.4 s</td>
+<td class="num">38.0 s</td>
+<td class="num">37.9 s</td>
+<td class="num">-</td>
+<td class="num">0.2 s</td>
+<td class="num ">0</td>
+<td class="num">0</td>
+<td class="">no</td>
+<td class="num">-</td>
+<td class="num">7.9 s</td>
+<td></td>
+</tr>
+
+<tr>
+<td><a href="etcd-one-member-loss/report.html">etcd-one-member-loss</a></td>
+<td>default / off</td>
+<td class="pass">pass</td>
+<td class="num">-</td>
+<td class="num">0.0 s</td>
+<td class="num">0.1 s</td>
+<td class="num">-</td>
+<td class="num">0.1 s</td>
+<td class="num ">0</td>
+<td class="num">0</td>
+<td class="">no</td>
+<td class="num">-</td>
+<td class="num">-</td>
+<td></td>
+</tr>
+
+<tr>
+<td><a href="etcd-quorum-loss/report.html">etcd-quorum-loss</a></td>
+<td>default / off</td>
+<td class="pass">pass</td>
+<td class="num">-</td>
+<td class="num">54.1 s</td>
+<td class="num">30.1 s</td>
+<td class="num">-</td>
+<td class="num">0.1 s</td>
+<td class="num ">0</td>
+<td class="num">0</td>
+<td class="">no</td>
+<td class="num">24.7 s</td>
+<td class="num">-</td>
+<td></td>
+</tr>
+
+<tr>
+<td><a href="fast-profile-primary-sigkill/report.html">fast-profile-primary-sigkill</a></td>
+<td>fast / off</td>
+<td class="fail">FAIL</td>
+<td class="num">25.2 s</td>
+<td class="num">29.3 s</td>
+<td class="num">29.2 s</td>
+<td class="num">1.5 s</td>
+<td class="num">0.2 s</td>
+<td class="num ">0</td>
+<td class="num">0</td>
+<td class="">no</td>
+<td class="num">-</td>
+<td class="num">8.2 s</td>
+<td>detection_sec</td>
+</tr>
+
+<tr>
+<td><a href="haproxy-restart/report.html">haproxy-restart</a></td>
+<td>default / off</td>
+<td class="pass">pass</td>
+<td class="num">-</td>
+<td class="num">6.3 s</td>
+<td class="num">1.2 s</td>
+<td class="num">-</td>
+<td class="num">1.3 s</td>
+<td class="num ">0</td>
+<td class="num">0</td>
+<td class="">no</td>
+<td class="num">-</td>
+<td class="num">-</td>
+<td></td>
+</tr>
+
+<tr>
+<td><a href="lagging-replica-failover/report.html">lagging-replica-failover</a></td>
+<td>default / off</td>
+<td class="pass">pass</td>
+<td class="num">-</td>
+<td class="num">81.9 s</td>
+<td class="num">68.2 s</td>
+<td class="num">-</td>
+<td class="num">13.3 s</td>
+<td class="num ">0</td>
+<td class="num">1</td>
+<td class="">no</td>
+<td class="num">-</td>
+<td class="num">65.3 s</td>
+<td></td>
+</tr>
+
+<tr>
+<td><a href="lagging-replica-stale-optime/report.html">lagging-replica-stale-optime</a></td>
+<td>default / off</td>
+<td class="pass">pass</td>
+<td class="num">40.1 s</td>
+<td class="num">42.7 s</td>
+<td class="num">41.0 s</td>
+<td class="num">-</td>
+<td class="num">2.3 s</td>
+<td class="num fail">8</td>
+<td class="num">0</td>
+<td class="">no</td>
+<td class="num">-</td>
+<td class="num">0.1 s</td>
+<td></td>
+</tr>
+
+<tr>
+<td><a href="planned-switchover/report.html">planned-switchover</a></td>
+<td>default / off</td>
+<td class="pass">pass</td>
+<td class="num">8.4 s</td>
+<td class="num">10.6 s</td>
+<td class="num">3.8 s</td>
+<td class="num">-</td>
+<td class="num">0.2 s</td>
+<td class="num ">0</td>
+<td class="num">0</td>
+<td class="">no</td>
+<td class="num">-</td>
+<td class="num">-</td>
+<td></td>
+</tr>
+
+<tr>
+<td><a href="primary-clean-stop/report.html">primary-clean-stop</a></td>
+<td>default / off</td>
+<td class="pass">pass</td>
+<td class="num">1.9 s</td>
+<td class="num">5.6 s</td>
+<td class="num">5.2 s</td>
+<td class="num">-</td>
+<td class="num">0.1 s</td>
+<td class="num ">0</td>
+<td class="num">0</td>
+<td class="">no</td>
+<td class="num">-</td>
+<td class="num">2.0 s</td>
+<td></td>
+</tr>
+
+<tr>
+<td><a href="primary-frozen/report.html">primary-frozen</a></td>
+<td>default / off</td>
+<td class="pass">pass</td>
+<td class="num">30.7 s</td>
+<td class="num">33.9 s</td>
+<td class="num">33.8 s</td>
+<td class="num">-</td>
+<td class="num">0.2 s</td>
+<td class="num ">0</td>
+<td class="num">0</td>
+<td class="fail">yes</td>
+<td class="num">44.6 s</td>
+<td class="num">11.0 s</td>
+<td></td>
+</tr>
+
+<tr>
+<td><a href="primary-partition/report.html">primary-partition</a></td>
+<td>default / off</td>
+<td class="pass">pass</td>
+<td class="num">22.7 s</td>
+<td class="num">26.4 s</td>
+<td class="num">26.3 s</td>
+<td class="num">-</td>
+<td class="num">0.3 s</td>
+<td class="num ">0</td>
+<td class="num">0</td>
+<td class="">no</td>
+<td class="num">8.7 s</td>
+<td class="num">27.7 s</td>
+<td></td>
+</tr>
+
+<tr>
+<td><a href="primary-sigkill/report.html">primary-sigkill</a></td>
+<td>default / off</td>
+<td class="pass">pass</td>
+<td class="num">25.2 s</td>
+<td class="num">29.4 s</td>
+<td class="num">29.2 s</td>
+<td class="num">2.2 s</td>
+<td class="num">0.2 s</td>
+<td class="num ">0</td>
+<td class="num">1</td>
+<td class="">no</td>
+<td class="num">-</td>
+<td class="num">7.6 s</td>
+<td></td>
+</tr>
+
+<tr>
+<td><a href="replica-loss/report.html">replica-loss</a></td>
+<td>default / off</td>
+<td class="pass">pass</td>
+<td class="num">-</td>
+<td class="num">0.0 s</td>
+<td class="num">0.0 s</td>
+<td class="num">-</td>
+<td class="num">2.2 s</td>
+<td class="num ">0</td>
+<td class="num">0</td>
+<td class="">no</td>
+<td class="num">-</td>
+<td class="num">3.1 s</td>
+<td></td>
+</tr>
+
+<tr>
+<td><a href="sync-mode-primary-sigkill/report.html">sync-mode-primary-sigkill</a></td>
+<td>default / on</td>
+<td class="pass">pass</td>
+<td class="num">34.8 s</td>
+<td class="num">37.3 s</td>
+<td class="num">37.2 s</td>
+<td class="num">0.4 s</td>
+<td class="num">0.2 s</td>
+<td class="num ">0</td>
+<td class="num">1</td>
+<td class="">no</td>
+<td class="num">-</td>
+<td class="num">8.6 s</td>
+<td></td>
+</tr>
+
+<tr>
+<td><a href="sync-replica-loss-strict/report.html">sync-replica-loss-strict</a></td>
+<td>default / strict</td>
+<td class="pass">pass</td>
+<td class="num">-</td>
+<td class="num">0.0 s</td>
+<td class="num">6.3 s</td>
+<td class="num">-</td>
+<td class="num">2.3 s</td>
+<td class="num ">0</td>
+<td class="num">0</td>
+<td class="">no</td>
+<td class="num">-</td>
+<td class="num">2.0 s</td>
+<td></td>
+</tr>
+
+<tr>
+<td><a href="sync-replica-loss/report.html">sync-replica-loss</a></td>
+<td>default / on</td>
+<td class="pass">pass</td>
+<td class="num">-</td>
+<td class="num">0.0 s</td>
+<td class="num">6.2 s</td>
+<td class="num">-</td>
+<td class="num">0.1 s</td>
+<td class="num ">0</td>
+<td class="num">0</td>
+<td class="">no</td>
+<td class="num">-</td>
+<td class="num">3.0 s</td>
+<td></td>
+</tr>
+
+</table>
+
+<p class="sub">detection: fault → Patroni shows a new leader · RTO write: fault → first acked write · stall: longest gap between two acked writes · read-only: writes that reached a node still in recovery · lost: acked commits missing on the final primary · fenced: fault → old primary stops taking writes · rejoin: recovery action → streaming with lag 0. Times in seconds.</p>
+
+<footer>Generated by leaderfall. Each scenario links to its own report with the timeline, SLO checks and raw data.</footer>
+</body>
+</html>

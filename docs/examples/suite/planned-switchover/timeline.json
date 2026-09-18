@@ -1,0 +1,62 @@
+[
+  {
+    "t": 0.0002702000001590932,
+    "name": "run_start",
+    "detail": "planned-switchover: D:\\leaderfall\\reports\\20260918T121609Z-planned-switchover"
+  },
+  {
+    "t": 1.3597728999993706,
+    "name": "cluster_ready",
+    "detail": "leader pg-3"
+  },
+  {
+    "t": 1.381504999999379,
+    "name": "workload_started",
+    "detail": "50 writes/s"
+  },
+  {
+    "t": 15.027997699999105,
+    "name": "warmup_done",
+    "detail": "673 acked writes"
+  },
+  {
+    "t": 23.12345110000024,
+    "name": "fault",
+    "detail": "switchover pg-3 (8.09s)"
+  },
+  {
+    "t": 23.926655899998877,
+    "name": "wait:new_leader",
+    "detail": "pg-1 after 8.4s"
+  },
+  {
+    "t": 25.734638399999312,
+    "name": "wait:writes_ok",
+    "detail": "after 1.8s"
+  },
+  {
+    "t": 26.547622500000216,
+    "name": "wait:cluster_healthy",
+    "detail": "after 0.8s"
+  },
+  {
+    "t": 36.548968299999615,
+    "name": "hold",
+    "detail": "10s of steady workload"
+  },
+  {
+    "t": 36.557002999999895,
+    "name": "workload_stopped",
+    "detail": null
+  },
+  {
+    "t": 36.5877447999992,
+    "name": "rows_in_sync",
+    "detail": "{'pg-1': 1550, 'pg-2': 1550, 'pg-3': 1550}"
+  },
+  {
+    "t": 36.871525999998994,
+    "name": "run_end",
+    "detail": "passed"
+  }
+]

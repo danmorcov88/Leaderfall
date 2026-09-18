@@ -193,3 +193,22 @@ Targets are resolved when the step runs: `primary`, `sync_replica` and `any_repl
 ### SLO limits
 
 `slo.yml` holds limits in layers: `defaults`, then per Patroni profile, then per sync mode. The scenario's `expect` block is the last layer. Later layers win; a key set to `null` disables a check. Checks: `failover` (must or must not happen), `detection_sec_max`, `rto_write_sec_max`, `rto_read_sec_max`, `rejoin_sec_max` (only when a recovery action ran), `demotion_sec_max` (only when the old primary stayed up), `lost_acked_commits_max`, `split_brain`, `final_topology`. A scenario passes when every check passes and no step failed. The suite passes when every scenario passes; `leaderfall run` exits 1 otherwise, which is what fails CI.
+
+## Reports
+
+Every run writes its directory under `reports/`: `result.json` (the whole `RunResult`: config, versions, events, metrics, checks, final state), `timeline.json`, `report.md`, `report.html` (metric cards, an SVG timeline, SLO checks, events, environment) and the raw `ledger.jsonl`, `rounds.jsonl`, `reads.jsonl`. A suite writes `suite.json`, `suite.md` and `index.html` with one table linking to each run.
+
+`leaderfall report [PATH] [--open] [--site DIR] [--update-readme]` rebuilds the pages for the latest (or the given) run or suite, copies a suite and its runs into a self-contained folder, and rewrites the results table in `README.md` between `<!-- results:start -->` and `<!-- results:end -->`. The nightly workflow uses both: the site goes to GitHub Pages, the table is committed to `main`.
+
+## Monitoring (optional)
+
+`leaderfall up --monitoring` (or `make monitoring`) adds two containers under the Compose profile `monitoring`:
+
+- **Prometheus** (`:9090`) scrapes Patroni's `/metrics` on every node, HAProxy's built-in exporter (`/metrics` on the stats port) and etcd, every 2 s, since the events of interest last seconds.
+- **Grafana** (`:3000`, anonymous viewer, `admin`/`admin`) with a provisioned dashboard `leaderfall`: role per node (`patroni_primary * 2 + patroni_replica`), PostgreSQL timeline, replication lag, HAProxy server state (`haproxy_server_status{state="UP"}`: the exporter emits one series per possible state), write connections, etcd leader.
+
+The runner posts a Grafana annotation at every fault, action and new leader when `http://127.0.0.1:3000` (or `LEADERFALL_GRAFANA`) answers, and stays silent otherwise. Nothing in the measurements depends on monitoring.
+
+## Nightly run
+
+`chaos-nightly.yml` runs `leaderfall run --all --tag core,advanced` on a GitHub runner at 03:00 UTC and on demand, uploads the raw reports as an artifact, publishes the suite site to GitHub Pages, commits the README table, and fails if any scenario failed. The `smoke` job in `ci.yml` runs `primary-sigkill` on every push.

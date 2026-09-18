@@ -1,0 +1,288 @@
+{
+  "scenario": "primary-sigkill",
+  "description": "Kill the primary process with SIGKILL during steady writes.",
+  "tags": [
+    "core",
+    "smoke"
+  ],
+  "leaderfall_version": "0.0.1",
+  "started_at": "2026-09-18T12:19:55+00:00",
+  "finished_at": "2026-09-18T12:20:58+00:00",
+  "duration_sec": 63.26745859999937,
+  "host": {
+    "platform": "Windows-10-10.0.19045-SP0",
+    "machine": "AMD64",
+    "cpus": 12,
+    "python": "3.13.5",
+    "docker": "27.3.1"
+  },
+  "versions": {
+    "postgresql": "17.11 (Debian 17.11-1.pgdg13+2)",
+    "patroni": "4.1.5",
+    "etcd_image": "quay.io/coreos/etcd:v3.5.33",
+    "haproxy_image": "haproxy:3.2.23",
+    "postgres_image": "leaderfall/postgres-patroni:17.11-4.1.5"
+  },
+  "cluster": {
+    "profile": "default",
+    "sync": "off",
+    "dcs": {
+      "ttl": 30,
+      "loop_wait": 10,
+      "retry_timeout": 10,
+      "maximum_lag_on_failover": 1048576,
+      "synchronous_mode": false,
+      "synchronous_mode_strict": false,
+      "failsafe_mode": false,
+      "postgresql": {
+        "use_pg_rewind": true,
+        "use_slots": true,
+        "parameters": {
+          "wal_level": "replica",
+          "hot_standby": "on",
+          "wal_log_hints": "on",
+          "max_connections": 100,
+          "max_wal_senders": 10,
+          "max_replication_slots": 10,
+          "wal_keep_size": "256MB",
+          "synchronous_commit": "on"
+        }
+      }
+    }
+  },
+  "workload": {
+    "writers": 1,
+    "rate_per_sec": 50.0,
+    "warmup_sec": 15.0,
+    "reader_rate_per_sec": 10.0,
+    "poll_rate_per_sec": 2.0
+  },
+  "faults": [
+    {
+      "action": "kill:SIGKILL",
+      "target": "leaderfall-pg-3",
+      "node": "pg-3",
+      "requested_at": 15.115816699999414,
+      "done_at": 15.825694799999837,
+      "detail": null
+    },
+    {
+      "action": "start",
+      "target": "leaderfall-pg-3",
+      "node": "pg-3",
+      "requested_at": 54.51130039999953,
+      "done_at": 55.17774660000032,
+      "detail": null
+    }
+  ],
+  "events": [
+    {
+      "t": 0.0003822999988187803,
+      "name": "run_start",
+      "detail": "primary-sigkill: D:\\leaderfall\\reports\\20260918T121955Z-primary-sigkill"
+    },
+    {
+      "t": 1.2551180999998905,
+      "name": "cluster_ready",
+      "detail": "leader pg-3"
+    },
+    {
+      "t": 1.2850859999998647,
+      "name": "workload_started",
+      "detail": "50 writes/s"
+    },
+    {
+      "t": 15.111733399999139,
+      "name": "warmup_done",
+      "detail": "681 acked writes"
+    },
+    {
+      "t": 15.825721600000179,
+      "name": "fault",
+      "detail": "kill:SIGKILL pg-3 (0.71s)"
+    },
+    {
+      "t": 40.69188810000014,
+      "name": "wait:new_leader",
+      "detail": "pg-1 after 25.2s"
+    },
+    {
+      "t": 44.50910859999931,
+      "name": "wait:writes_ok",
+      "detail": "after 3.8s"
+    },
+    {
+      "t": 54.51044749999892,
+      "name": "hold",
+      "detail": "10s of steady workload"
+    },
+    {
+      "t": 55.17777319999914,
+      "name": "action",
+      "detail": "start pg-3 (0.67s)"
+    },
+    {
+      "t": 62.992181399999026,
+      "name": "wait:node_streaming",
+      "detail": "after 7.8s"
+    },
+    {
+      "t": 62.9950031999997,
+      "name": "workload_stopped",
+      "detail": null
+    },
+    {
+      "t": 63.02446249999957,
+      "name": "rows_in_sync",
+      "detail": "{'pg-1': 1575, 'pg-2': 1575, 'pg-3': 1575}"
+    },
+    {
+      "t": 63.26144349999959,
+      "name": "run_end",
+      "detail": "passed"
+    }
+  ],
+  "metrics": {
+    "failed_node": "pg-3",
+    "recovery_action": "start",
+    "old_leader": "pg-3",
+    "new_leader": "pg-1",
+    "detection_sec": 25.17990439999994,
+    "demotion_expected": false,
+    "demotion_node": null,
+    "demotion_sec": null,
+    "old_primary_last_write_sec": null,
+    "write_outage": {
+      "first_failure_at": 15.311325200000283,
+      "last_ack_before_fault": 15.290676499998881,
+      "first_ack_after_fault": 44.49535549999928,
+      "rto_write_sec": 29.379538799999864,
+      "gap_sec": 29.204679000000397,
+      "failed_during_outage": 1099,
+      "unknown_during_outage": 1,
+      "readonly_failures": 99,
+      "readonly_window_sec": 2.2043460000004416,
+      "ack_gap_sec": 29.204679000000397,
+      "max_write_latency_sec": 0.2773859999997512
+    },
+    "rto_read_sec": 0.2071542000012414,
+    "reads_on_primary": 37,
+    "rpo": {
+      "lost_acked": [],
+      "unknown": [
+        691
+      ],
+      "unknown_present": [],
+      "unknown_missing": [
+        691
+      ]
+    },
+    "split_brain": {
+      "detected": false,
+      "rounds": [],
+      "multi_primary_rounds": [],
+      "window_sec": null
+    },
+    "rejoin_sec": 7.605772499999148,
+    "diverged_rows_max": 1,
+    "timeline_before": 57,
+    "timeline_after": 58,
+    "ledger": {
+      "attempts": 2675,
+      "acked": 1575,
+      "failed": 1099,
+      "unknown": 1,
+      "first_id": 1,
+      "last_id": 2675
+    }
+  },
+  "final": {
+    "leader": "pg-1",
+    "replicas": [
+      "pg-2",
+      "pg-3"
+    ],
+    "timeline": null,
+    "same_timeline": false,
+    "row_counts": {
+      "pg-1": 1575,
+      "pg-2": 1575,
+      "pg-3": 1575
+    },
+    "same_row_count": true,
+    "healthy": true,
+    "problems": []
+  },
+  "rewind": {
+    "ran": true,
+    "done": true,
+    "diverged_at_lsn": "0/B5BE8A8",
+    "diverged_on_timeline": 57
+  },
+  "limits": {
+    "failover": true,
+    "detection_sec_max": 40.0,
+    "rto_write_sec_max": 45.0,
+    "ack_gap_sec_max": null,
+    "rto_read_sec_max": 10.0,
+    "rejoin_sec_max": 60.0,
+    "demotion_sec_max": 40.0,
+    "lost_acked_commits_max": null,
+    "split_brain": false,
+    "final_topology": "1-leader-2-replicas"
+  },
+  "checks": [
+    {
+      "name": "failover",
+      "limit": true,
+      "actual": true,
+      "passed": true,
+      "note": "pg-3 -> pg-1"
+    },
+    {
+      "name": "detection_sec",
+      "limit": 40.0,
+      "actual": 25.18,
+      "passed": true,
+      "note": null
+    },
+    {
+      "name": "rto_write_sec",
+      "limit": 45.0,
+      "actual": 29.38,
+      "passed": true,
+      "note": null
+    },
+    {
+      "name": "rto_read_sec",
+      "limit": 10.0,
+      "actual": 0.21,
+      "passed": true,
+      "note": null
+    },
+    {
+      "name": "rejoin_sec",
+      "limit": 60.0,
+      "actual": 7.61,
+      "passed": true,
+      "note": null
+    },
+    {
+      "name": "split_brain",
+      "limit": false,
+      "actual": false,
+      "passed": true,
+      "note": null
+    },
+    {
+      "name": "final_topology",
+      "limit": "1-leader-2-replicas",
+      "actual": "healthy",
+      "passed": true,
+      "note": null
+    }
+  ],
+  "passed": true,
+  "error": null,
+  "report_dir": "D:\\leaderfall\\reports\\20260918T121955Z-primary-sigkill"
+}

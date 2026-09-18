@@ -1,0 +1,72 @@
+[
+  {
+    "t": 0.00029089999952702783,
+    "name": "run_start",
+    "detail": "primary-partition: D:\\leaderfall\\reports\\20260918T121834Z-primary-partition"
+  },
+  {
+    "t": 1.2256617000002734,
+    "name": "cluster_ready",
+    "detail": "leader pg-1"
+  },
+  {
+    "t": 1.2431746000002022,
+    "name": "workload_started",
+    "detail": "50 writes/s"
+  },
+  {
+    "t": 15.072758399999657,
+    "name": "warmup_done",
+    "detail": "687 acked writes"
+  },
+  {
+    "t": 15.68295229999967,
+    "name": "fault",
+    "detail": "partition pg-1 (0.61s)"
+  },
+  {
+    "t": 38.33900859999994,
+    "name": "wait:new_leader",
+    "detail": "pg-3 after 22.7s"
+  },
+  {
+    "t": 38.340364800000316,
+    "name": "wait:node_fenced",
+    "detail": "after 0.0s"
+  },
+  {
+    "t": 41.55798499999946,
+    "name": "wait:writes_ok",
+    "detail": "after 3.2s"
+  },
+  {
+    "t": 51.55990159999965,
+    "name": "hold",
+    "detail": "10s of steady workload"
+  },
+  {
+    "t": 52.01637169999958,
+    "name": "action",
+    "detail": "heal pg-1 (0.46s)"
+  },
+  {
+    "t": 79.87973670000065,
+    "name": "wait:node_streaming",
+    "detail": "after 27.9s"
+  },
+  {
+    "t": 79.88648529999955,
+    "name": "workload_stopped",
+    "detail": null
+  },
+  {
+    "t": 80.1467131999998,
+    "name": "rows_in_sync",
+    "detail": "{'pg-1': 2542, 'pg-2': 2542, 'pg-3': 2542}"
+  },
+  {
+    "t": 80.40083500000037,
+    "name": "run_end",
+    "detail": "passed"
+  }
+]
