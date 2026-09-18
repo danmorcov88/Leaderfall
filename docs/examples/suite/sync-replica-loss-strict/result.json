@@ -1,0 +1,286 @@
+{
+  "scenario": "sync-replica-loss-strict",
+  "description": "Strict synchronous mode; the sync standby dies. Patroni may only move the sync role to a healthy replica, never drop it; writes stall until then.",
+  "tags": [
+    "advanced",
+    "sync"
+  ],
+  "leaderfall_version": "0.0.1",
+  "started_at": "2026-09-18T12:22:53+00:00",
+  "finished_at": "2026-09-18T12:23:27+00:00",
+  "duration_sec": 34.061932500000694,
+  "host": {
+    "platform": "Windows-10-10.0.19045-SP0",
+    "machine": "AMD64",
+    "cpus": 12,
+    "python": "3.13.5",
+    "docker": "27.3.1"
+  },
+  "versions": {
+    "postgresql": "17.11 (Debian 17.11-1.pgdg13+2)",
+    "patroni": "4.1.5",
+    "etcd_image": "quay.io/coreos/etcd:v3.5.33",
+    "haproxy_image": "haproxy:3.2.23",
+    "postgres_image": "leaderfall/postgres-patroni:17.11-4.1.5"
+  },
+  "cluster": {
+    "profile": "default",
+    "sync": "strict",
+    "dcs": {
+      "ttl": 30,
+      "loop_wait": 10,
+      "retry_timeout": 10,
+      "maximum_lag_on_failover": 1048576,
+      "synchronous_mode": true,
+      "synchronous_mode_strict": true,
+      "failsafe_mode": false,
+      "postgresql": {
+        "use_pg_rewind": true,
+        "use_slots": true,
+        "parameters": {
+          "wal_level": "replica",
+          "hot_standby": "on",
+          "wal_log_hints": "on",
+          "max_connections": 100,
+          "max_wal_senders": 10,
+          "max_replication_slots": 10,
+          "wal_keep_size": "256MB",
+          "synchronous_commit": "on"
+        }
+      }
+    }
+  },
+  "workload": {
+    "writers": 1,
+    "rate_per_sec": 50.0,
+    "warmup_sec": 15.0,
+    "reader_rate_per_sec": 10.0,
+    "poll_rate_per_sec": 2.0
+  },
+  "faults": [
+    {
+      "action": "kill:SIGKILL",
+      "target": "leaderfall-pg-3",
+      "node": "pg-3",
+      "requested_at": 15.198674500001289,
+      "done_at": 15.795369000001301,
+      "detail": null
+    },
+    {
+      "action": "start",
+      "target": "leaderfall-pg-3",
+      "node": "pg-3",
+      "requested_at": 30.798466700000063,
+      "done_at": 31.551118400000632,
+      "detail": null
+    }
+  ],
+  "events": [
+    {
+      "t": 0.0003677000004245201,
+      "name": "run_start",
+      "detail": "sync-replica-loss-strict: D:\\leaderfall\\reports\\20260918T122253Z-sync-replica-loss-strict"
+    },
+    {
+      "t": 1.3476700999999593,
+      "name": "cluster_ready",
+      "detail": "leader pg-2"
+    },
+    {
+      "t": 1.3695882000010897,
+      "name": "workload_started",
+      "detail": "50 writes/s"
+    },
+    {
+      "t": 15.195436600000903,
+      "name": "warmup_done",
+      "detail": "664 acked writes"
+    },
+    {
+      "t": 15.795393600001262,
+      "name": "fault",
+      "detail": "kill:SIGKILL pg-3 (0.60s)"
+    },
+    {
+      "t": 15.796406299999944,
+      "name": "wait:writes_ok",
+      "detail": "after 0.0s"
+    },
+    {
+      "t": 30.7976163000003,
+      "name": "hold",
+      "detail": "15s of steady workload"
+    },
+    {
+      "t": 31.551140999999916,
+      "name": "action",
+      "detail": "start pg-3 (0.75s)"
+    },
+    {
+      "t": 33.58715630000006,
+      "name": "wait:cluster_healthy",
+      "detail": "after 2.0s"
+    },
+    {
+      "t": 33.79391520000172,
+      "name": "workload_stopped",
+      "detail": null
+    },
+    {
+      "t": 33.82277140000042,
+      "name": "rows_in_sync",
+      "detail": "{'pg-1': 1255, 'pg-2': 1255, 'pg-3': 1255}"
+    },
+    {
+      "t": 34.05668510000032,
+      "name": "run_end",
+      "detail": "passed"
+    }
+  ],
+  "metrics": {
+    "failed_node": "pg-3",
+    "recovery_action": "start",
+    "old_leader": "pg-2",
+    "new_leader": null,
+    "detection_sec": null,
+    "demotion_expected": false,
+    "demotion_node": null,
+    "demotion_sec": null,
+    "old_primary_last_write_sec": null,
+    "write_outage": {
+      "first_failure_at": null,
+      "last_ack_before_fault": 15.190542800000912,
+      "first_ack_after_fault": null,
+      "rto_write_sec": 0.0,
+      "gap_sec": 0.0,
+      "failed_during_outage": 0,
+      "unknown_during_outage": 0,
+      "readonly_failures": 0,
+      "readonly_window_sec": null,
+      "ack_gap_sec": 6.314080699999977,
+      "max_write_latency_sec": 6.292255299998942
+    },
+    "rto_read_sec": 2.2786336000008305,
+    "reads_on_primary": 0,
+    "rpo": {
+      "lost_acked": [],
+      "unknown": [],
+      "unknown_present": [],
+      "unknown_missing": []
+    },
+    "split_brain": {
+      "detected": false,
+      "rounds": [],
+      "multi_primary_rounds": [],
+      "window_sec": null
+    },
+    "rejoin_sec": 2.036037199999555,
+    "diverged_rows_max": 0,
+    "timeline_before": 59,
+    "timeline_after": 59,
+    "ledger": {
+      "attempts": 1255,
+      "acked": 1255,
+      "failed": 0,
+      "unknown": 0,
+      "first_id": 1,
+      "last_id": 1255
+    }
+  },
+  "final": {
+    "leader": "pg-2",
+    "replicas": [
+      "pg-1",
+      "pg-3"
+    ],
+    "timeline": null,
+    "same_timeline": false,
+    "row_counts": {
+      "pg-1": 1255,
+      "pg-2": 1255,
+      "pg-3": 1255
+    },
+    "same_row_count": true,
+    "healthy": true,
+    "problems": []
+  },
+  "rewind": {
+    "ran": false,
+    "done": false,
+    "diverged_at_lsn": null,
+    "diverged_on_timeline": null
+  },
+  "limits": {
+    "failover": false,
+    "detection_sec_max": null,
+    "rto_write_sec_max": 30.0,
+    "ack_gap_sec_max": 15.0,
+    "rto_read_sec_max": 10.0,
+    "rejoin_sec_max": 60.0,
+    "demotion_sec_max": 40.0,
+    "lost_acked_commits_max": 0,
+    "split_brain": false,
+    "final_topology": "1-leader-2-replicas"
+  },
+  "checks": [
+    {
+      "name": "failover",
+      "limit": false,
+      "actual": false,
+      "passed": true,
+      "note": null
+    },
+    {
+      "name": "rto_write_sec",
+      "limit": 30.0,
+      "actual": 0.0,
+      "passed": true,
+      "note": null
+    },
+    {
+      "name": "ack_gap_sec",
+      "limit": 15.0,
+      "actual": 6.31,
+      "passed": true,
+      "note": null
+    },
+    {
+      "name": "rto_read_sec",
+      "limit": 10.0,
+      "actual": 2.28,
+      "passed": true,
+      "note": null
+    },
+    {
+      "name": "rejoin_sec",
+      "limit": 60.0,
+      "actual": 2.04,
+      "passed": true,
+      "note": null
+    },
+    {
+      "name": "lost_acked_commits",
+      "limit": 0,
+      "actual": 0,
+      "passed": true,
+      "note": null
+    },
+    {
+      "name": "split_brain",
+      "limit": false,
+      "actual": false,
+      "passed": true,
+      "note": null
+    },
+    {
+      "name": "final_topology",
+      "limit": "1-leader-2-replicas",
+      "actual": "healthy",
+      "passed": true,
+      "note": null
+    }
+  ],
+  "passed": true,
+  "error": null,
+  "report_dir": "D:\\leaderfall\\reports\\20260918T122253Z-sync-replica-loss-strict"
+}

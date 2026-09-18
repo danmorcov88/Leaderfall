@@ -1,0 +1,62 @@
+[
+  {
+    "t": 0.0002949999998236308,
+    "name": "run_start",
+    "detail": "etcd-one-member-loss: D:\\leaderfall\\reports\\20260918T120902Z-etcd-one-member-loss"
+  },
+  {
+    "t": 1.3478952999994362,
+    "name": "cluster_ready",
+    "detail": "leader pg-3"
+  },
+  {
+    "t": 1.365621299999475,
+    "name": "workload_started",
+    "detail": "50 writes/s"
+  },
+  {
+    "t": 15.194044399999257,
+    "name": "warmup_done",
+    "detail": "681 acked writes"
+  },
+  {
+    "t": 15.941269900000407,
+    "name": "fault",
+    "detail": "kill:SIGKILL leaderfall-etcd-1 (0.74s)"
+  },
+  {
+    "t": 60.94228680000015,
+    "name": "hold",
+    "detail": "45s of steady workload"
+  },
+  {
+    "t": 61.618843899999774,
+    "name": "action",
+    "detail": "start leaderfall-etcd-1 (0.68s)"
+  },
+  {
+    "t": 61.62192900000082,
+    "name": "wait:cluster_healthy",
+    "detail": "after 0.0s"
+  },
+  {
+    "t": 71.62340799999947,
+    "name": "hold",
+    "detail": "10s of steady workload"
+  },
+  {
+    "t": 71.62643349999962,
+    "name": "workload_stopped",
+    "detail": null
+  },
+  {
+    "t": 71.65687769999931,
+    "name": "rows_in_sync",
+    "detail": "{'pg-1': 3463, 'pg-2': 3463, 'pg-3': 3463}"
+  },
+  {
+    "t": 71.7046934000009,
+    "name": "run_end",
+    "detail": "passed"
+  }
+]

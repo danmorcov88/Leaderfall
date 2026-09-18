@@ -1,0 +1,336 @@
+{
+  "scenario": "lagging-replica-failover",
+  "description": "Both replicas fall behind (frozen while the primary writes 16 MB of WAL), then the primary dies. With maximum_lag_on_failover exceeded, Patroni must refuse to promote either; the cluster stays leaderless until the primary is back.",
+  "tags": [
+    "advanced"
+  ],
+  "leaderfall_version": "0.0.1",
+  "started_at": "2026-09-18T12:13:13+00:00",
+  "finished_at": "2026-09-18T12:14:50+00:00",
+  "duration_sec": 97.38694269999905,
+  "host": {
+    "platform": "Windows-10-10.0.19045-SP0",
+    "machine": "AMD64",
+    "cpus": 12,
+    "python": "3.13.5",
+    "docker": "27.3.1"
+  },
+  "versions": {
+    "postgresql": "17.11 (Debian 17.11-1.pgdg13+2)",
+    "patroni": "4.1.5",
+    "etcd_image": "quay.io/coreos/etcd:v3.5.33",
+    "haproxy_image": "haproxy:3.2.23",
+    "postgres_image": "leaderfall/postgres-patroni:17.11-4.1.5"
+  },
+  "cluster": {
+    "profile": "default",
+    "sync": "off",
+    "dcs": {
+      "ttl": 30,
+      "loop_wait": 10,
+      "retry_timeout": 10,
+      "maximum_lag_on_failover": 16384,
+      "synchronous_mode": false,
+      "synchronous_mode_strict": false,
+      "failsafe_mode": false,
+      "postgresql": {
+        "use_pg_rewind": true,
+        "use_slots": true,
+        "parameters": {
+          "wal_level": "replica",
+          "hot_standby": "on",
+          "wal_log_hints": "on",
+          "max_connections": 100,
+          "max_wal_senders": 10,
+          "max_replication_slots": 10,
+          "wal_keep_size": "256MB",
+          "synchronous_commit": "on"
+        }
+      }
+    }
+  },
+  "workload": {
+    "writers": 1,
+    "rate_per_sec": 50.0,
+    "warmup_sec": 15.0,
+    "reader_rate_per_sec": 10.0,
+    "poll_rate_per_sec": 2.0
+  },
+  "faults": [
+    {
+      "action": "pause",
+      "target": "leaderfall-pg-1",
+      "node": "pg-1",
+      "requested_at": 15.031025399999635,
+      "done_at": 15.264475999998467,
+      "detail": null
+    },
+    {
+      "action": "pause",
+      "target": "leaderfall-pg-3",
+      "node": "pg-3",
+      "requested_at": 16.283607599998504,
+      "done_at": 16.503561599998648,
+      "detail": null
+    },
+    {
+      "action": "write_wal",
+      "target": "primary",
+      "node": null,
+      "requested_at": 16.504461299999093,
+      "done_at": 16.603850299999976,
+      "detail": "16 MB, 32768 rows"
+    },
+    {
+      "action": "kill:SIGKILL",
+      "target": "leaderfall-pg-2",
+      "node": "pg-2",
+      "requested_at": 28.608872599999813,
+      "done_at": 29.308019099999,
+      "detail": null
+    },
+    {
+      "action": "unpause",
+      "target": "leaderfall-pg-1",
+      "node": "pg-1",
+      "requested_at": 29.308932099998856,
+      "done_at": 29.533364299999448,
+      "detail": null
+    },
+    {
+      "action": "unpause",
+      "target": "leaderfall-pg-3",
+      "node": "pg-3",
+      "requested_at": 29.534287999998924,
+      "done_at": 29.762808399998903,
+      "detail": null
+    },
+    {
+      "action": "start",
+      "target": "leaderfall-pg-2",
+      "node": "pg-2",
+      "requested_at": 89.76637859999937,
+      "done_at": 90.39848290000009,
+      "detail": null
+    }
+  ],
+  "events": [
+    {
+      "t": 0.0002893999990192242,
+      "name": "run_start",
+      "detail": "lagging-replica-failover: D:\\leaderfall\\reports\\20260918T121313Z-lagging-replica-failover"
+    },
+    {
+      "t": 1.3810764999998355,
+      "name": "cluster_ready",
+      "detail": "leader pg-2"
+    },
+    {
+      "t": 1.3990779999985534,
+      "name": "workload_started",
+      "detail": "50 writes/s"
+    },
+    {
+      "t": 15.027680499999406,
+      "name": "warmup_done",
+      "detail": "671 acked writes"
+    },
+    {
+      "t": 15.264501999999993,
+      "name": "fault",
+      "detail": "pause pg-1 (0.23s)"
+    },
+    {
+      "t": 16.50358950000009,
+      "name": "action",
+      "detail": "pause pg-3 (0.22s)"
+    },
+    {
+      "t": 16.603906899999856,
+      "name": "action",
+      "detail": "write_wal 16 MB, 32768 rows (0.1s)"
+    },
+    {
+      "t": 28.606072399999903,
+      "name": "hold",
+      "detail": "12s of steady workload"
+    },
+    {
+      "t": 29.308047699998497,
+      "name": "action",
+      "detail": "kill:SIGKILL pg-2 (0.70s)"
+    },
+    {
+      "t": 29.533389399999578,
+      "name": "action",
+      "detail": "unpause pg-1 (0.22s)"
+    },
+    {
+      "t": 29.762847399999373,
+      "name": "action",
+      "detail": "unpause pg-3 (0.23s)"
+    },
+    {
+      "t": 89.76480839999931,
+      "name": "hold",
+      "detail": "60s of steady workload"
+    },
+    {
+      "t": 89.7657081999987,
+      "name": "wait:no_leader",
+      "detail": "after 0.0s"
+    },
+    {
+      "t": 90.39851869999984,
+      "name": "action",
+      "detail": "start pg-2 (0.63s)"
+    },
+    {
+      "t": 97.05892019999919,
+      "name": "wait:writes_ok",
+      "detail": "after 6.7s"
+    },
+    {
+      "t": 97.06382169999961,
+      "name": "wait:cluster_healthy",
+      "detail": "after 0.0s"
+    },
+    {
+      "t": 97.07757609999862,
+      "name": "workload_stopped",
+      "detail": null
+    },
+    {
+      "t": 97.11962629999834,
+      "name": "rows_in_sync",
+      "detail": "{'pg-1': 1358, 'pg-2': 1358, 'pg-3': 1358}"
+    },
+    {
+      "t": 97.3798971999986,
+      "name": "run_end",
+      "detail": "passed"
+    }
+  ],
+  "metrics": {
+    "failed_node": "pg-1",
+    "recovery_action": "unpause",
+    "old_leader": "pg-2",
+    "new_leader": null,
+    "detection_sec": null,
+    "demotion_expected": false,
+    "demotion_node": null,
+    "demotion_sec": null,
+    "old_primary_last_write_sec": null,
+    "write_outage": {
+      "first_failure_at": 28.704096800000116,
+      "last_ack_before_fault": 28.697270499998922,
+      "first_ack_after_fault": 96.89558039999974,
+      "rto_write_sec": 81.86455500000011,
+      "gap_sec": 68.19830990000082,
+      "failed_during_outage": 3095,
+      "unknown_during_outage": 1,
+      "readonly_failures": 0,
+      "readonly_window_sec": null,
+      "ack_gap_sec": 68.19830990000082,
+      "max_write_latency_sec": 0.04467040000054112
+    },
+    "rto_read_sec": 13.300436699999409,
+    "reads_on_primary": 0,
+    "rpo": {
+      "lost_acked": [],
+      "unknown": [
+        1349
+      ],
+      "unknown_present": [
+        1349
+      ],
+      "unknown_missing": []
+    },
+    "split_brain": {
+      "detected": false,
+      "rounds": [],
+      "multi_primary_rounds": [],
+      "window_sec": null
+    },
+    "rejoin_sec": 65.3345790000003,
+    "diverged_rows_max": 0,
+    "timeline_before": 51,
+    "timeline_after": 52,
+    "ledger": {
+      "attempts": 4453,
+      "acked": 1357,
+      "failed": 3095,
+      "unknown": 1,
+      "first_id": 1,
+      "last_id": 4453
+    }
+  },
+  "final": {
+    "leader": "pg-2",
+    "replicas": [
+      "pg-1",
+      "pg-3"
+    ],
+    "timeline": null,
+    "same_timeline": false,
+    "row_counts": {
+      "pg-1": 1358,
+      "pg-2": 1358,
+      "pg-3": 1358
+    },
+    "same_row_count": true,
+    "healthy": true,
+    "problems": []
+  },
+  "rewind": {
+    "ran": false,
+    "done": false,
+    "diverged_at_lsn": null,
+    "diverged_on_timeline": null
+  },
+  "limits": {
+    "failover": false,
+    "detection_sec_max": null,
+    "rto_write_sec_max": null,
+    "ack_gap_sec_max": null,
+    "rto_read_sec_max": null,
+    "rejoin_sec_max": null,
+    "demotion_sec_max": 40.0,
+    "lost_acked_commits_max": 0,
+    "split_brain": false,
+    "final_topology": "1-leader-2-replicas"
+  },
+  "checks": [
+    {
+      "name": "failover",
+      "limit": false,
+      "actual": false,
+      "passed": true,
+      "note": null
+    },
+    {
+      "name": "lost_acked_commits",
+      "limit": 0,
+      "actual": 0,
+      "passed": true,
+      "note": null
+    },
+    {
+      "name": "split_brain",
+      "limit": false,
+      "actual": false,
+      "passed": true,
+      "note": null
+    },
+    {
+      "name": "final_topology",
+      "limit": "1-leader-2-replicas",
+      "actual": "healthy",
+      "passed": true,
+      "note": null
+    }
+  ],
+  "passed": true,
+  "error": null,
+  "report_dir": "D:\\leaderfall\\reports\\20260918T121313Z-lagging-replica-failover"
+}

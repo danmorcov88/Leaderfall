@@ -1,0 +1,82 @@
+[
+  {
+    "t": 0.0003312999997433508,
+    "name": "run_start",
+    "detail": "double-fault: D:\\leaderfall\\reports\\20260918T120748Z-double-fault"
+  },
+  {
+    "t": 1.3346960999988369,
+    "name": "cluster_ready",
+    "detail": "leader pg-2"
+  },
+  {
+    "t": 1.3592865999999049,
+    "name": "workload_started",
+    "detail": "50 writes/s"
+  },
+  {
+    "t": 15.199087999999392,
+    "name": "warmup_done",
+    "detail": "666 acked writes"
+  },
+  {
+    "t": 15.94941420000032,
+    "name": "fault",
+    "detail": "kill:SIGKILL pg-2 (0.73s)"
+  },
+  {
+    "t": 25.95091119999961,
+    "name": "hold",
+    "detail": "10s of steady workload"
+  },
+  {
+    "t": 28.577400899999702,
+    "name": "action",
+    "detail": "kill:SIGKILL pg-1 (2.62s)"
+  },
+  {
+    "t": 50.029924599999504,
+    "name": "wait:new_leader",
+    "detail": "pg-3 after 34.4s"
+  },
+  {
+    "t": 53.248150199999145,
+    "name": "wait:writes_ok",
+    "detail": "after 3.2s"
+  },
+  {
+    "t": 63.249183099998845,
+    "name": "hold",
+    "detail": "10s of steady workload"
+  },
+  {
+    "t": 64.02560710000034,
+    "name": "action",
+    "detail": "start pg-2 (0.78s)"
+  },
+  {
+    "t": 64.82878940000046,
+    "name": "action",
+    "detail": "start pg-1 (0.80s)"
+  },
+  {
+    "t": 71.96221990000049,
+    "name": "wait:cluster_healthy",
+    "detail": "after 7.1s"
+  },
+  {
+    "t": 71.96632560000035,
+    "name": "workload_stopped",
+    "detail": null
+  },
+  {
+    "t": 71.99673359999906,
+    "name": "rows_in_sync",
+    "detail": "{'pg-1': 1565, 'pg-2': 1565, 'pg-3': 1565}"
+  },
+  {
+    "t": 72.23421090000011,
+    "name": "run_end",
+    "detail": "passed"
+  }
+]
