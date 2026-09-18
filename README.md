@@ -15,7 +15,24 @@ The results are checked against SLO limits and written to a report. The suite ru
 
 ## Status
 
-Early development. The cluster is done; the chaos harness is being built phase by phase. See [docs/architecture.md](docs/architecture.md) for what runs where and [docs/adr](docs/adr) for the design decisions.
+Early development. The cluster and the measurement harness are done; the first scenario, `primary-sigkill`, runs end to end. The scenario engine, the other scenarios and the HTML reports come next. See [docs/architecture.md](docs/architecture.md) for what runs where and how things are measured, and [docs/adr](docs/adr) for the design decisions.
+
+### First numbers
+
+Five `primary-sigkill` runs in a row, `default` profile (ttl 30), async replication, 50 writes/s, on one laptop:
+
+| Run | Detection | RTO write | Read-only window | Lost acked commits | Unknown commits | Split brain | Rejoin |
+|---|---|---|---|---|---|---|---|
+| 1 | 27.7 s | 29.9 s | 0 | 0 | 0 | no | 5.5 s |
+| 2 | 28.3 s | 31.9 s | 0 | 0 | 0 | no | 6.1 s |
+| 3 | 25.2 s | 29.3 s | 0.4 s | 0 | 1 (missing) | no | 5.6 s |
+| 4 | 29.7 s | 37.3 s | 5.1 s | 0 | 0 | no | 6.2 s |
+| 5 | 28.7 s | 32.2 s | 0 | 0 | 0 | no | 6.7 s |
+
+Two things these runs showed that a demo would not:
+
+- **The new primary can be read-only for seconds after Patroni calls it the leader.** Patroni takes the lock and answers `/primary` with 200 as soon as it sends the promote request. HAProxy starts routing writes at once. But PostgreSQL's startup process is asleep in its WAL-receiver retry loop (`wal_retrieve_retry_interval`, 5 s by default) and only acts on the promote when it wakes up. In run 4 that window was 5.1 s and 231 writes failed with `cannot execute INSERT in a read-only transaction`. This is why RTO varies by 8 s between runs with the same settings.
+- **`unknown` commits are real.** In run 3 one `COMMIT` was sent, the connection died, and the row was not there afterwards. An application that retries such a write without an idempotency key will duplicate it; one that does not retry will lose it.
 
 ## Quick start
 
@@ -24,7 +41,7 @@ git clone https://github.com/danmorcov88/Leaderfall.git
 cd Leaderfall
 make up      # start the cluster and wait until it is healthy
 make status  # topology: node, role, state, timeline, lag
-make chaos   # run the smoke scenario and write a report (Phase 2)
+make chaos   # run primary-sigkill and write a report
 make down    # stop it (VOLUMES=1 also deletes the data)
 ```
 
