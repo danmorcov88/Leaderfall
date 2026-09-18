@@ -47,22 +47,6 @@ Needs Docker (with Compose v2), Python 3.12+ and `make`. Nothing else. Writes go
 
 ![Architecture](docs/images/architecture.svg)
 
-```mermaid
-flowchart TB
-    H[leaderfall CLI on the host<br/>writer, reader, ledger, node poller<br/>faults, metrics, SLO, reports]
-    P[HAProxy<br/>:5000 writes to the primary<br/>:5001 reads to replicas<br/>checks Patroni REST /primary, /replica]
-    H -- workload --> P
-    H -. direct ports: ground truth per node .-> N1
-    subgraph net [Docker network leaderfall]
-        N1[pg-1<br/>Patroni + PostgreSQL 17]
-        N2[pg-2<br/>Patroni + PostgreSQL 17]
-        N3[pg-3<br/>Patroni + PostgreSQL 17]
-        E1[etcd-1] --- E2[etcd-2] --- E3[etcd-3]
-    end
-    P --> N1 & N2 & N3
-    N1 & N2 & N3 -- leader lease, member keys --> E1
-```
-
 Seven containers on one Compose network: three PostgreSQL nodes managed by Patroni, a three-member etcd as the distributed configuration store, and HAProxy routing on Patroni's REST health checks. The harness runs on the host and talks to HAProxy like an application would, and to every node directly for ground truth. Optional: Prometheus and Grafana. Details in [docs/architecture.md](docs/architecture.md); the reasons in [docs/adr](docs/adr).
 
 ## Results

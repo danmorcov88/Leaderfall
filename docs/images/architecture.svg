@@ -1,94 +1,88 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="900" height="470" viewBox="0 0 900 470" font-family="Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="14">
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="600" viewBox="0 0 960 600" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13">
   <defs>
-    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
-      <path d="M0,0 L10,5 L0,10 z" fill="#667085"/>
-    </marker>
+    <marker id="a-grey" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#667085"/></marker>
+    <marker id="a-blue" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#175cd3"/></marker>
+    <marker id="a-green" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#157f3b"/></marker>
+    <marker id="a-orange" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#b54708"/></marker>
   </defs>
-  <rect width="900" height="470" fill="#ffffff"/>
+  <rect width="960" height="600" fill="#ffffff"/>
 
-  <!-- harness -->
-  <rect x="30" y="30" width="230" height="130" rx="10" fill="#f8fafc" stroke="#98a2b3"/>
-  <text x="145" y="56" text-anchor="middle" font-weight="600">leaderfall (host)</text>
-  <text x="145" y="80" text-anchor="middle" fill="#475467">writer + reader + ledger</text>
-  <text x="145" y="100" text-anchor="middle" fill="#475467">node poller (direct, docker exec)</text>
-  <text x="145" y="120" text-anchor="middle" fill="#475467">faults: kill, stop, pause, partition, ...</text>
-  <text x="145" y="140" text-anchor="middle" fill="#475467">metrics, SLO, reports</text>
+  <!-- ===== harness, on the host ===== -->
+  <rect x="40" y="30" width="260" height="100" rx="8" fill="#f8fafc" stroke="#98a2b3"/>
+  <text x="170" y="55" text-anchor="middle" font-weight="600" font-size="14">leaderfall (on the host)</text>
+  <text x="170" y="77" text-anchor="middle" fill="#475467">writer, reader, ledger, node poller</text>
+  <text x="170" y="96" text-anchor="middle" fill="#475467">fault injection, metrics, SLO checks</text>
+  <text x="170" y="115" text-anchor="middle" fill="#475467">reports, Grafana annotations</text>
 
-  <!-- haproxy -->
-  <rect x="340" y="40" width="240" height="110" rx="10" fill="#eef4ff" stroke="#175cd3"/>
-  <text x="460" y="66" text-anchor="middle" font-weight="600" fill="#175cd3">HAProxy</text>
-  <text x="460" y="90" text-anchor="middle" fill="#344054">:5000 writes → primary</text>
-  <text x="460" y="110" text-anchor="middle" fill="#344054">:5001 reads → replicas</text>
-  <text x="460" y="130" text-anchor="middle" fill="#667085">checks: Patroni REST /primary, /replica</text>
+  <!-- ===== docker network ===== -->
+  <rect x="20" y="170" width="920" height="410" rx="10" fill="none" stroke="#d0d5dd" stroke-dasharray="4,5"/>
+  <text x="928" y="192" text-anchor="end" fill="#98a2b3" font-size="12">Docker Compose network "leaderfall"</text>
 
-  <!-- workload arrows -->
-  <line x1="260" y1="80" x2="336" y2="80" stroke="#667085" stroke-width="2" marker-end="url(#arrow)"/>
-  <text x="298" y="72" text-anchor="middle" fill="#667085" font-size="12">workload</text>
+  <!-- ===== haproxy ===== -->
+  <rect x="40" y="210" width="260" height="110" rx="8" fill="#eef4ff" stroke="#175cd3"/>
+  <text x="170" y="236" text-anchor="middle" font-weight="600" font-size="14" fill="#175cd3">HAProxy</text>
+  <text x="170" y="260" text-anchor="middle" fill="#175cd3">:5000  writes → the primary</text>
+  <text x="170" y="280" text-anchor="middle" fill="#475467">:5001  reads → the replicas</text>
+  <text x="170" y="304" text-anchor="middle" fill="#667085" font-size="12">health checks: Patroni REST /primary, /replica</text>
 
-  <!-- monitoring -->
-  <rect x="640" y="40" width="230" height="110" rx="10" fill="#f8fafc" stroke="#98a2b3" stroke-dasharray="6,4"/>
-  <text x="755" y="66" text-anchor="middle" font-weight="600">monitoring (optional)</text>
-  <text x="755" y="90" text-anchor="middle" fill="#475467">Prometheus :9090</text>
-  <text x="755" y="110" text-anchor="middle" fill="#475467">Grafana :3000, annotations</text>
-  <text x="755" y="130" text-anchor="middle" fill="#667085">Patroni, HAProxy, etcd /metrics</text>
+  <!-- ===== monitoring ===== -->
+  <rect x="40" y="440" width="260" height="100" rx="8" fill="#f8fafc" stroke="#98a2b3" stroke-dasharray="6,4"/>
+  <text x="170" y="465" text-anchor="middle" font-weight="600" font-size="14">monitoring (optional)</text>
+  <text x="170" y="487" text-anchor="middle" fill="#475467">Prometheus :9090, Grafana :3000</text>
+  <text x="170" y="506" text-anchor="middle" fill="#475467">scrapes Patroni, HAProxy and etcd</text>
+  <text x="170" y="525" text-anchor="middle" fill="#475467">every 2 s</text>
 
-  <!-- pg nodes -->
-  <g id="pg">
-    <rect x="200" y="230" width="150" height="90" rx="10" fill="#e6f4ea" stroke="#157f3b"/>
-    <text x="275" y="256" text-anchor="middle" font-weight="600" fill="#157f3b">pg-1</text>
-    <text x="275" y="278" text-anchor="middle" fill="#344054">Patroni :8008</text>
-    <text x="275" y="298" text-anchor="middle" fill="#344054">PostgreSQL 17 :5432</text>
-  </g>
-  <g>
-    <rect x="375" y="230" width="150" height="90" rx="10" fill="#f8fafc" stroke="#98a2b3"/>
-    <text x="450" y="256" text-anchor="middle" font-weight="600">pg-2</text>
-    <text x="450" y="278" text-anchor="middle" fill="#344054">Patroni :8008</text>
-    <text x="450" y="298" text-anchor="middle" fill="#344054">PostgreSQL 17 :5432</text>
-  </g>
-  <g>
-    <rect x="550" y="230" width="150" height="90" rx="10" fill="#f8fafc" stroke="#98a2b3"/>
-    <text x="625" y="256" text-anchor="middle" font-weight="600">pg-3</text>
-    <text x="625" y="278" text-anchor="middle" fill="#344054">Patroni :8008</text>
-    <text x="625" y="298" text-anchor="middle" fill="#344054">PostgreSQL 17 :5432</text>
-  </g>
-  <text x="275" y="340" text-anchor="middle" fill="#157f3b" font-size="12">leader (any node can be)</text>
-  <text x="700" y="358" text-anchor="end" fill="#667085" font-size="12">replicas (pg_rewind on rejoin)</text>
+  <!-- ===== postgres nodes ===== -->
+  <rect x="380" y="190" width="320" height="370" rx="10" fill="#fcfcfd" stroke="#d0d5dd"/>
+  <text x="396" y="552" fill="#667085" font-size="12">PostgreSQL 17 + Patroni 4, one container per node</text>
 
-  <!-- haproxy -> pg -->
-  <line x1="430" y1="150" x2="290" y2="226" stroke="#175cd3" stroke-width="2" marker-end="url(#arrow)"/>
-  <line x1="460" y1="150" x2="455" y2="226" stroke="#98a2b3" stroke-width="2" marker-end="url(#arrow)"/>
-  <line x1="490" y1="150" x2="610" y2="226" stroke="#98a2b3" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect x="410" y="225" width="230" height="70" rx="8" fill="#e6f4ea" stroke="#157f3b"/>
+  <text x="525" y="250" text-anchor="middle" font-weight="600" font-size="14" fill="#157f3b">pg-1  ·  leader</text>
+  <text x="525" y="272" text-anchor="middle" fill="#344054">PostgreSQL :5432   Patroni :8008</text>
 
-  <!-- harness -> direct ports -->
-  <path d="M60,160 L60,275 L196,275" fill="none" stroke="#667085" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
-  <text x="66" y="215" fill="#667085" font-size="12">direct ports 5441–5443</text>
-  <text x="66" y="231" fill="#667085" font-size="12">and REST 8011–8013:</text>
-  <text x="66" y="247" fill="#667085" font-size="12">ground truth per node</text>
+  <rect x="410" y="345" width="230" height="70" rx="8" fill="#ffffff" stroke="#98a2b3"/>
+  <text x="525" y="370" text-anchor="middle" font-weight="600" font-size="14">pg-2  ·  replica</text>
+  <text x="525" y="392" text-anchor="middle" fill="#344054">PostgreSQL :5432   Patroni :8008</text>
 
-  <!-- etcd -->
-  <rect x="230" y="385" width="130" height="60" rx="10" fill="#fff7e6" stroke="#b54708"/>
-  <text x="295" y="410" text-anchor="middle" font-weight="600" fill="#b54708">etcd-1</text>
-  <text x="295" y="430" text-anchor="middle" fill="#344054" font-size="12">:2379</text>
-  <rect x="385" y="385" width="130" height="60" rx="10" fill="#fff7e6" stroke="#b54708"/>
-  <text x="450" y="410" text-anchor="middle" font-weight="600" fill="#b54708">etcd-2</text>
-  <text x="450" y="430" text-anchor="middle" fill="#344054" font-size="12">:2379</text>
-  <rect x="540" y="385" width="130" height="60" rx="10" fill="#fff7e6" stroke="#b54708"/>
-  <text x="605" y="410" text-anchor="middle" font-weight="600" fill="#b54708">etcd-3</text>
-  <text x="605" y="430" text-anchor="middle" fill="#344054" font-size="12">:2379</text>
-  <text x="690" y="412" fill="#667085" font-size="12">DCS: leader lease (ttl),</text>
-  <text x="690" y="428" fill="#667085" font-size="12">member keys, dynamic config</text>
+  <rect x="410" y="465" width="230" height="70" rx="8" fill="#ffffff" stroke="#98a2b3"/>
+  <text x="525" y="490" text-anchor="middle" font-weight="600" font-size="14">pg-3  ·  replica</text>
+  <text x="525" y="512" text-anchor="middle" fill="#344054">PostgreSQL :5432   Patroni :8008</text>
 
-  <!-- pg -> etcd -->
-  <line x1="275" y1="320" x2="295" y2="381" stroke="#b54708" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <line x1="450" y1="320" x2="450" y2="381" stroke="#b54708" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <line x1="625" y1="320" x2="605" y2="381" stroke="#b54708" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="525" y="325" text-anchor="middle" fill="#667085" font-size="12">any node can become the leader</text>
 
-  <!-- replication -->
-  <path d="M350,262 L371,262" stroke="#157f3b" stroke-width="2" marker-end="url(#arrow)"/>
-  <path d="M350,300 C420,360 560,360 610,324" fill="none" stroke="#157f3b" stroke-width="2" marker-end="url(#arrow)"/>
-  <text x="480" y="372" text-anchor="middle" fill="#157f3b" font-size="12">streaming replication</text>
+  <!-- streaming replication bus, right of the nodes -->
+  <path d="M640,260 L668,260 L668,500" fill="none" stroke="#157f3b" stroke-width="2"/>
+  <path d="M668,380 L640,380" fill="none" stroke="#157f3b" stroke-width="2" marker-end="url(#a-green)"/>
+  <path d="M668,500 L640,500" fill="none" stroke="#157f3b" stroke-width="2" marker-end="url(#a-green)"/>
+  <text transform="translate(686,440) rotate(-90)" text-anchor="middle" fill="#157f3b" font-size="12">streaming replication</text>
 
-  <!-- docker network -->
-  <rect x="180" y="200" width="700" height="260" rx="12" fill="none" stroke="#d0d5dd" stroke-dasharray="3,5"/>
-  <text x="870" y="216" text-anchor="end" fill="#98a2b3" font-size="12">one Docker Compose network: leaderfall</text>
+  <!-- ===== etcd ===== -->
+  <rect x="760" y="300" width="160" height="170" rx="8" fill="#fff7e6" stroke="#b54708"/>
+  <text x="840" y="325" text-anchor="middle" font-weight="600" font-size="14" fill="#b54708">etcd, 3 members</text>
+  <rect x="780" y="340" width="120" height="30" rx="5" fill="#ffffff" stroke="#b54708"/>
+  <text x="840" y="360" text-anchor="middle" fill="#344054">etcd-1  :2379</text>
+  <rect x="780" y="380" width="120" height="30" rx="5" fill="#ffffff" stroke="#b54708"/>
+  <text x="840" y="400" text-anchor="middle" fill="#344054">etcd-2  :2379</text>
+  <rect x="780" y="420" width="120" height="30" rx="5" fill="#ffffff" stroke="#b54708"/>
+  <text x="840" y="440" text-anchor="middle" fill="#344054">etcd-3  :2379</text>
+  <text x="840" y="500" text-anchor="middle" fill="#667085" font-size="12">leader lease (ttl), member keys,</text>
+  <text x="840" y="517" text-anchor="middle" fill="#667085" font-size="12">dynamic configuration</text>
+
+  <!-- nodes -> etcd -->
+  <line x1="700" y1="385" x2="756" y2="385" stroke="#b54708" stroke-width="2" marker-end="url(#a-orange)"/>
+
+  <!-- ===== edges from the harness ===== -->
+  <!-- workload to HAProxy -->
+  <line x1="170" y1="130" x2="170" y2="206" stroke="#667085" stroke-width="2" marker-end="url(#a-grey)"/>
+  <text x="180" y="163" fill="#667085" font-size="12">workload, like an application</text>
+
+  <!-- direct ground truth, dashed, over the top into the node group -->
+  <path d="M300,70 L525,70 L525,221" fill="none" stroke="#667085" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#a-grey)"/>
+  <text x="412" y="62" text-anchor="middle" fill="#667085" font-size="12">direct ports per node: ground truth</text>
+  <text x="412" y="88" text-anchor="middle" fill="#667085" font-size="12">pg_is_in_recovery(), timeline, probe writes</text>
+
+  <!-- ===== HAProxy -> nodes ===== -->
+  <line x1="300" y1="250" x2="406" y2="260" stroke="#175cd3" stroke-width="2" marker-end="url(#a-blue)"/>
+  <line x1="300" y1="280" x2="406" y2="380" stroke="#98a2b3" stroke-width="2" marker-end="url(#a-grey)"/>
+  <line x1="300" y1="300" x2="406" y2="500" stroke="#98a2b3" stroke-width="2" marker-end="url(#a-grey)"/>
 </svg>
