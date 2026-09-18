@@ -136,18 +136,46 @@ services:
     hostname: haproxy
     restart: unless-stopped
     networks: [cluster]
-    # A `configs` entry, not a bind mount: Compose hashes the content, so editing the
-    # file and running `up` recreates the container. A bind mount would keep the old
-    # process running with the old config.
-    configs:
-      - source: haproxy_cfg
-        target: /usr/local/etc/haproxy/haproxy.cfg
+    # Bind mount. Compose does not restart a running container when the file changes;
+    # `leaderfall up` restarts HAProxy itself when the file is newer than the container.
+    volumes:
+      - ./docker/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
     ports: ["5000:5000", "5001:5001", "7000:7000"]
     depends_on: [pg-1, pg-2, pg-3]
 
+  # Optional: `leaderfall up --monitoring` or `docker compose --profile monitoring up -d`.
+  #   9090  Prometheus (Patroni, HAProxy and etcd metrics, scraped every 2 s)
+  #   3000  Grafana, anonymous viewer, admin/admin, dashboard "Leaderfall"
+  prometheus:
+    image: prom/prometheus:v3.14.0
+    container_name: leaderfall-prometheus
+    profiles: [monitoring]
+    networks: [cluster]
+    configs:
+      - source: prometheus_cfg
+        target: /etc/prometheus/prometheus.yml
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=2d"]
+    ports: ["9090:9090"]
+
+  grafana:
+    image: grafana/grafana:13.2.2
+    container_name: leaderfall-grafana
+    profiles: [monitoring]
+    networks: [cluster]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_DEFAULT_THEME: light
+    volumes:
+      - ./docker/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./docker/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["3000:3000"]
+    depends_on: [prometheus]
+
 configs:
-  haproxy_cfg:
-    file: ./docker/haproxy/haproxy.cfg
+  prometheus_cfg:
+    file: ./docker/monitoring/prometheus.yml
 
 networks:
   cluster:

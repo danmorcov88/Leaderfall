@@ -27,7 +27,7 @@ import psycopg
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from leaderfall import __version__, faults, measure, slo
+from leaderfall import __version__, faults, grafana, measure, slo
 from leaderfall.cluster import (
     DEFAULT_MAX_LAG_ON_FAILOVER,
     ETCD_CONTAINERS,
@@ -304,6 +304,7 @@ class ScenarioRunner:
         self.demotion_target: str | None = None  # set when the scenario waits for node_fenced
         self.rejoin_confirmed_at: float | None = None  # a wait saw the failed node streaming
         self.hit: list[Target] = []  # every container a fault or action took down
+        self.annotator = grafana.Annotator()
 
     @property
     def failed(self) -> Target | None:
@@ -422,6 +423,7 @@ class ScenarioRunner:
             self.recovery = timing
         took = timing.done_at - timing.requested_at
         self.event(step.kind, f"{timing.action} {target.label} ({took:.2f}s)")
+        self.annotator.post(f"{self.spec.name}: {timing.action} {target.label}", [step.kind])
 
     def _do_wait(self, step: Step, poller: NodePoller, ledger: Ledger) -> None:
         what = step.wait_for
@@ -484,6 +486,7 @@ class ScenarioRunner:
         if what == "new_leader":
             detection, leader = value
             detail = f"{leader} after {detection:.1f}s"
+            self.annotator.post(f"{self.spec.name}: new leader {leader}", ["recovery"])
         if self.rejoin_confirmed_at is None and self.recovery is not None and self.failed:
             streaming = (what == "node_streaming" and target == self.failed) or (
                 what == "cluster_healthy"
