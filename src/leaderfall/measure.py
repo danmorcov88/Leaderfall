@@ -89,9 +89,14 @@ class FinalTopology(BaseModel):
 
 
 class Metrics(BaseModel):
+    failed_node: str | None  # pg node hit by the first fault, if it was a pg node
+    recovery_action: str | None  # start / unpause / heal applied to it, if any
     old_leader: str | None
-    new_leader: str | None
+    new_leader: str | None  # None when no failover happened
     detection_sec: float | None
+    demotion_expected: bool = False  # the old primary stayed up (partition, freeze)
+    demotion_sec: float | None  # fault -> the old primary stops accepting writes for good
+    old_primary_last_write_sec: float | None = None  # fault -> its last accepted probe write
     write_outage: WriteOutage
     rto_read_sec: float | None
     rpo: RpoResult
@@ -182,6 +187,14 @@ def rpo(entries: Sequence[LedgerEntry], present_ids: set[int]) -> RpoResult:
     )
 
 
+def writes_ok(entries: Sequence[LedgerEntry], since: float) -> bool:
+    """True when the most recent write attempt sent after ``since`` was acked."""
+    after = [e for e in entries if e.sent_at >= since]
+    if not after:
+        return False
+    return max(after, key=lambda e: e.sent_at).result is WriteResult.ACKED
+
+
 def diverged_rows_max(result: RpoResult) -> int:
     """Rows the old primary may have committed that the new timeline does not have.
 
@@ -267,6 +280,42 @@ def rejoin_time(
         if m.get("state") == "streaming" and isinstance(lag, int) and lag <= max_lag_bytes:
             return r.t - started_at
     return None
+
+
+def demotion_time(
+    rounds: Sequence[PollRound],
+    fault_at: float,
+    node: str | None,
+    until: float | None = None,
+) -> tuple[float | None, float | None]:
+    """When the old primary stopped taking writes: ``(demotion_sec, last_write_sec)``.
+
+    Both are measured from the fault. ``last_write_sec`` is the last round in which the
+    node still committed the probe row; ``demotion_sec`` is the first round after which
+    it never did again (up to ``until``, normally the moment it was healed or restarted).
+    A node that accepted no write after the fault was demoted "at once": ``(0, None)``.
+    ``(None, x)`` means it was still accepting writes when the window ended.
+
+    Only meaningful when the node was a primary at the fault and stayed up (partition,
+    freeze). For a killed node the answer is its restart, which the rejoin metric covers.
+    """
+    if node is None:
+        return None, None
+    window = [r for r in rounds if r.t >= fault_at and (until is None or r.t < until)]
+    writable = [i for i, r in enumerate(window) if node in r.writable]
+    if not writable:
+        return (0.0, None) if window else (None, None)
+    last = writable[-1]
+    last_write = window[last].t - fault_at
+    if last + 1 >= len(window):
+        return None, last_write  # still writable at the end of the window
+    return window[last + 1].t - fault_at, last_write
+
+
+def node_fenced(rounds: Sequence[PollRound], node: str, consecutive: int = 2) -> bool:
+    """True when the node has not accepted a probe write in the last ``consecutive`` rounds."""
+    tail = rounds[-consecutive:]
+    return len(tail) == consecutive and all(node not in r.writable for r in tail)
 
 
 def timeline_at(rounds: Sequence[PollRound], t: float, node: str | None) -> int | None:
