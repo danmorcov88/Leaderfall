@@ -657,9 +657,17 @@ class ScenarioRunner:
         if fault_at is not None:
             detection, new_leader = measure.detection_time(rounds, fault_at, self.old_leader)
             if demotion_expected:
-                # Whole run: after a thaw or a heal the node is a replica and never
-                # writable again, so the last writable round is the demotion either way.
-                demotion, last_write = measure.demotion_time(rounds, fault_at, self.demotion_target)
+                # The window closes when service is restored (etcd back, network healed):
+                # the old primary may legitimately be leader again after that. A thaw is
+                # the exception: the fencing only starts once the node is unpaused.
+                until = (
+                    self.recovery.requested_at
+                    if self.recovery and self.recovery.action != "unpause"
+                    else None
+                )
+                demotion, last_write = measure.demotion_time(
+                    rounds, fault_at, self.demotion_target, until
+                )
             timeline_before = measure.timeline_at(rounds, fault_at, self.old_leader)
         rejoin = (
             measure.rejoin_time(rounds, self.recovery.done_at, failed_node)
