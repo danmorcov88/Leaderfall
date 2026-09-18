@@ -69,7 +69,7 @@ Server addresses are resolved through Docker's DNS at run time (`resolvers docke
 | Profile | `ttl` | `loop_wait` | `retry_timeout` |
 |---|---|---|---|
 | `default` | 30 | 10 | 10 |
-| `fast` | 15 | 5 | 5 |
+| `fast` | 20 | 5 | 5 |
 
 | Sync mode | `synchronous_mode` | `synchronous_mode_strict` |
 |---|---|---|
@@ -122,7 +122,7 @@ The poller reconnects to a dead node in the background. On Docker Desktop the pu
 | Detection | Fault → first poller round in which Patroni reports a leader other than the old one. |
 | RTO write | Fault → first `acked` write after writes started failing. A write sent after the fault was requested but before the signal landed can still be acked by the dying primary; that does not end the outage. |
 | Write gap | Last ack before the outage → first ack after it. What a client feels. |
-| Read-only window | First write that reached the new primary while it was still in recovery → first ack. Those writes fail with `cannot execute INSERT in a read-only transaction`. |
+| Read-only window | First → last write that reached a node that was still in recovery. Those writes fail with `cannot execute INSERT in a read-only transaction`. Usually the new primary between Patroni's promote request and PostgreSQL finishing the promotion. |
 | RTO read | Longest gap between two successful reads. |
 | Lost acked commits (RPO) | Ids marked `acked` that are not in the table on the final primary. |
 | Unknown commits | Count of `unknown` ids, split into present and missing on the final primary. Reported, never a failure. |
@@ -142,6 +142,14 @@ The fault time is the moment the `docker kill` was *requested*. The signal lands
 ### Watching a node nobody can reach
 
 A node cut off the network keeps running, but its published port dies with its network endpoint. The poller then samples it through `docker exec psql` (one `psql` call: the state query, then the probe write). That is how `primary-partition` can show the isolated primary refusing writes 12 s after the partition and the new leader appearing 15 s later, and prove there was no overlap.
+
+### Watching a frozen node
+
+`docker pause` stops every process in a container but not its kernel: TCP keepalives are still answered, so a query to a frozen node hangs instead of failing, and `docker exec` hangs too. The poller gives every node its own worker thread and waits for a sample only briefly; a sample that does not return is reported as "no answer" in that round and lands in the round in which it finally completes, marked with the round that issued it. The poller also checks the container's state before an `exec`. This keeps rounds at 0.5 s through a freeze. At the thaw, the hung query runs, and its probe write is the first thing the old primary does: that is how `primary-frozen` catches the split-brain window to the round.
+
+### Stalls that are not errors
+
+Synchronous replication turns a lost sync standby into commits that wait, not commits that fail. Two ledger-derived numbers catch that: the longest gap between two acked writes over the whole run (`ack_gap_sec`, with an SLO limit `ack_gap_sec_max`) and the slowest single acked write.
 
 ## Scenario engine
 
@@ -166,7 +174,21 @@ Steps:
 
 Every wait has a `timeout_sec`. On a timeout or a fault error the runner records the error, does its best to bring the failed node back (unpause, start or reconnect, depending on the container's state), still waits for a healthy cluster, and reports the run as failed with whatever metrics it has.
 
-Targets are resolved when the step runs, from Patroni's `/cluster`: `primary`, `sync_replica`, `any_replica` (the lowest-named replica), `failed_node`, `haproxy`, `etcd-N`, or a node name.
+Targets are resolved when the step runs: `primary`, `sync_replica` and `any_replica` (the lowest-named replica the scenario has not hit yet) from Patroni's `/cluster`; `failed_node`, `failed_node_2` and `old_primary` from what earlier steps established, without asking anyone (they must work while nobody answers); `haproxy`, `etcd-N`, or a node name.
+
+### Fault primitives
+
+| Primitive | Implementation | Note |
+|---|---|---|
+| `kill` | `docker kill -s <signal>` | fault time = request time |
+| `stop` | `docker stop -t <grace>` | Patroni shuts down cleanly and releases the key |
+| `pause` / `unpause` | `docker pause` / `unpause` | every process frozen, TCP stays open |
+| `partition` / `heal` | `docker network disconnect` / `connect` | the node keeps running; published port dies |
+| `restart_service` | `docker restart -t <grace>` | HAProxy, etcd members |
+| `switchover` | Patroni `POST /switchover` | |
+| `netem` / `netem_clear` | `tc qdisc ... netem <spec>` in a throwaway container that shares the target's network namespace (`--net container:` + `NET_ADMIN`) | the PostgreSQL containers keep no capability. Needs `sch_netem` in the host kernel: standard Linux and GitHub runners yes, Docker Desktop's WSL2 kernel no |
+| `write_wal` | one bulk insert on the primary, `mb` megabytes | not a fault: creates real replication lag behind a frozen replica, whose TCP buffer would otherwise absorb a small workload |
+| `fill_disk` / `free_disk` | `fallocate` in the `pg_wal` directory | refuses unless the `pg_wal` filesystem is under 4 GB; on Docker Desktop and CI it is the shared host disk. See the `wal-disk-full` runbook |
 
 ### SLO limits
 

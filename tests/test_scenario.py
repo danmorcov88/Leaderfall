@@ -10,7 +10,14 @@ import yaml
 
 from leaderfall import measure, slo
 from leaderfall.cluster import ClusterState, PatroniProfile, SyncMode
-from leaderfall.faults import FaultError, Target, TargetKind, resolve_target
+from leaderfall.faults import (
+    FaultError,
+    Target,
+    TargetContext,
+    TargetKind,
+    netem_args,
+    resolve_target,
+)
 from leaderfall.scenario import ScenarioSpec, Step, find_scenario, load_all, rewind_info
 from leaderfall.workload import NodeSample, PollRound
 
@@ -33,13 +40,19 @@ class TestScenarioFiles:
             "haproxy-restart",
         }
         for spec in specs:
-            assert "core" in spec.tags or "advanced" in spec.tags, spec.name
+            assert {"core", "advanced", "bounded-wal"} & set(spec.tags), spec.name
 
     def test_core_tag_filter(self) -> None:
         core = load_all(REPO / "scenarios", tag="core")
         assert core
         assert all("core" in s.tags for s in core)
         assert load_all(REPO / "scenarios", tag="no-such-tag") == []
+
+    def test_comma_separated_tags(self) -> None:
+        both = load_all(REPO / "scenarios", tag="core,advanced")
+        assert {s.name for s in both} > {s.name for s in load_all(REPO / "scenarios", tag="core")}
+        assert not any("bounded-wal" in s.tags for s in both)
+        assert len(load_all(REPO / "scenarios", tag="all")) > len(both)
 
     def test_find_scenario_unknown(self) -> None:
         with pytest.raises(FileNotFoundError, match="available"):
@@ -49,7 +62,7 @@ class TestScenarioFiles:
         cfg = slo.SloConfig.load(REPO / "slo.yml")
         assert set(cfg.sync) == {"off", "on", "strict"}  # YAML on/off keys normalised
         assert cfg.profiles["default"].rto_write_sec_max == 45
-        assert cfg.profiles["fast"].rto_write_sec_max == 25
+        assert cfg.profiles["fast"].rto_write_sec_max == 30
 
 
 def minimal(**overrides: Any) -> dict[str, Any]:
@@ -108,6 +121,15 @@ class TestScenarioModel:
             Step.model_validate({"wait_for": "rain"})
         with pytest.raises(ValueError, match="needs a target"):
             Step.model_validate({"action": "start"})
+
+    def test_targetless_and_netem_steps(self) -> None:
+        assert Step.model_validate({"action": "write_wal", "mb": 16}).kind == "action"
+        with pytest.raises(ValueError, match="netem needs a spec"):
+            Step.model_validate({"fault": "netem", "target": "any_replica"})
+        step = Step.model_validate(
+            {"fault": "netem", "target": "any_replica", "netem": "delay 500ms"}
+        )
+        assert step.netem == "delay 500ms"
 
     def test_step_kinds_and_labels(self) -> None:
         assert Step.model_validate({"hold_sec": 5}).kind == "hold"
@@ -340,6 +362,19 @@ class TestResolveTarget:
         assert resolve_target("any_replica", state("pg-2")).node == "pg-1"
         assert resolve_target("any_replica", state("pg-1")).node == "pg-2"
 
+    def test_any_replica_skips_nodes_already_hit(self) -> None:
+        ctx = TargetContext(failed=Target("leaderfall-pg-1", TargetKind.PG, node="pg-1"))
+        assert resolve_target("any_replica", state("pg-2"), ctx).node == "pg-3"
+        ctx.failed_2 = Target("leaderfall-pg-3", TargetKind.PG, node="pg-3")
+        with pytest.raises(FaultError, match="no replica left"):
+            resolve_target("any_replica", state("pg-2"), ctx)
+
+    def test_old_primary_and_failed_node_2(self) -> None:
+        ctx = TargetContext(old_primary="pg-2")
+        assert resolve_target("old_primary", state("pg-3"), ctx).node == "pg-2"
+        with pytest.raises(FaultError, match="failed_node_2"):
+            resolve_target("failed_node_2", state(), ctx)
+
     def test_sync_replica(self) -> None:
         assert resolve_target("sync_replica", state("pg-1", sync="pg-3")).node == "pg-3"
         with pytest.raises(FaultError, match="sync_standby"):
@@ -407,6 +442,19 @@ class TestDemotion:
         assert measure.node_fenced(rounds, "pg-1")
         assert not measure.node_fenced(rounds[:2], "pg-1")
         assert not measure.node_fenced(rounds[:1], "pg-1")
+
+
+class TestNetemArgs:
+    def test_builds_tc_arguments(self) -> None:
+        assert netem_args("delay 500ms loss 10%") == [
+            "qdisc", "add", "dev", "eth0", "root", "netem", "delay", "500ms", "loss", "10%",
+        ]  # fmt: skip
+
+    def test_rejects_junk(self) -> None:
+        with pytest.raises(FaultError, match="must start with"):
+            netem_args("rm -rf /")
+        with pytest.raises(FaultError, match="bad netem token"):
+            netem_args("delay 500ms; reboot")
 
 
 class TestRewindInfo:

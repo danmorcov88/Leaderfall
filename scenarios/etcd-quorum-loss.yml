@@ -1,0 +1,38 @@
+name: etcd-quorum-loss
+description: Two of three etcd members die. Patroni loses its lease store; the primary must fence itself. When etcd returns, the cluster must recover without losing acked commits.
+tags: [advanced]
+cluster:
+  patroni_profile: default
+  synchronous_mode: false
+workload:
+  rate_per_sec: 50
+  warmup_sec: 15
+steps:
+  - fault: kill                   # kill, not stop: an etcd member without quorum ignores SIGTERM
+    target: etcd-1
+    signal: SIGKILL
+  - action: kill
+    target: etcd-2
+    signal: SIGKILL
+  - wait_for: node_fenced         # the primary stops taking writes without a DCS
+    target: old_primary
+    timeout_sec: 90
+  - hold_sec: 20                  # no DCS, no leader, no writes
+  - action: start
+    target: etcd-1
+  - action: start
+    target: etcd-2
+  - wait_for: writes_ok
+    timeout_sec: 180
+  - wait_for: cluster_healthy
+    timeout_sec: 300
+  - hold_sec: 10
+expect:
+  failover: null                  # any node may end up leader once etcd is back
+  detection_sec_max: null
+  rto_write_sec_max: null         # the outage lasts as long as etcd is down; reported only
+  demotion_sec_max: 40
+  lost_acked_commits_max: 0       # the primary shut down cleanly; nothing acked may be lost
+  rejoin_sec_max: null
+  split_brain: false
+  final_topology: 1-leader-2-replicas

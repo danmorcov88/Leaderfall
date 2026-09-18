@@ -1,0 +1,43 @@
+name: lagging-replica-failover
+description: Both replicas fall behind (frozen while the primary writes 16 MB of WAL), then the primary dies. With maximum_lag_on_failover exceeded, Patroni must refuse to promote either; the cluster stays leaderless until the primary is back.
+tags: [advanced]
+cluster:
+  patroni_profile: default
+  synchronous_mode: false
+  maximum_lag_on_failover: 16384  # 16 kB; the primary writes far more than that in 15 s
+workload:
+  rate_per_sec: 50
+  warmup_sec: 15
+steps:
+  - fault: pause
+    target: any_replica
+  - action: pause
+    target: any_replica            # resolves to the other replica: the first is already paused
+  - action: write_wal              # far more WAL than a frozen replica's TCP buffer can hold
+    mb: 16
+  - hold_sec: 12                   # > loop_wait: the leader publishes its new LSN to the DCS
+  - action: kill
+    target: primary
+    signal: SIGKILL
+  - action: unpause
+    target: failed_node
+  - action: unpause
+    target: failed_node_2
+  - hold_sec: 60                   # longer than ttl + loop_wait: enough time for an election
+  - wait_for: no_leader            # ... which must not have happened
+    timeout_sec: 10
+  - action: start
+    target: old_primary
+  - wait_for: writes_ok
+    timeout_sec: 120
+  - wait_for: cluster_healthy
+    timeout_sec: 180
+expect:
+  failover: false                  # the old primary must come back as leader; nobody else may
+  detection_sec_max: null
+  rto_write_sec_max: null          # reported: the outage lasts until the primary is restarted
+  rto_read_sec_max: null           # reported: both replicas are frozen by design
+  rejoin_sec_max: null
+  lost_acked_commits_max: 0
+  split_brain: false
+  final_topology: 1-leader-2-replicas

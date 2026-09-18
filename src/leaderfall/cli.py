@@ -120,7 +120,7 @@ def _topology_table(state: ClusterState) -> Table:
 def up(
     profile: Annotated[
         PatroniProfile,
-        typer.Option(help="Patroni timing profile: default = ttl 30/10/10, fast = 15/5/5."),
+        typer.Option(help="Patroni timing profile: default = ttl 30/10/10, fast = 20/5/5."),
     ] = PatroniProfile.DEFAULT,
     sync: Annotated[
         SyncMode,
@@ -210,11 +210,22 @@ def _result_table(r: RunResult) -> Table:
     table.add_row("RTO write", _fmt(m.write_outage.rto_write_sec), "fault -> first acked write")
     table.add_row("write gap", _fmt(m.write_outage.gap_sec), "last ack before -> first ack after")
     table.add_row(
+        "ack gap",
+        _fmt(m.write_outage.ack_gap_sec),
+        f"longest gap between two acked writes; slowest write "
+        f"{_fmt(m.write_outage.max_write_latency_sec)}",
+    )
+    table.add_row(
         "read-only window",
         _fmt(m.write_outage.readonly_window_sec),
-        f"{m.write_outage.readonly_failures} writes hit the new primary before it was writable",
+        f"{m.write_outage.readonly_failures} writes reached a node that was still read-only",
     )
-    table.add_row("RTO read", _fmt(m.rto_read_sec), "longest gap between good reads")
+    table.add_row(
+        "RTO read",
+        _fmt(m.rto_read_sec),
+        "longest gap between good reads"
+        + (f"; {m.reads_on_primary} reads fell back to the primary" if m.reads_on_primary else ""),
+    )
     lost = m.rpo.lost_acked_commits
     table.add_row(
         "lost acked commits",
@@ -227,10 +238,11 @@ def _result_table(r: RunResult) -> Table:
         f"{len(m.rpo.unknown_present)} present, {len(m.rpo.unknown_missing)} missing",
     )
     sb = m.split_brain
+    window = f" over {sb.window_sec:.1f}s" if sb.detected and sb.window_sec else ""
     table.add_row(
         "split brain",
         "[red]YES[/red]" if sb.detected else "no",
-        f"{len(sb.rounds)} rounds with 2 writable primaries, "
+        f"{len(sb.rounds)} rounds with 2 writable primaries{window}, "
         f"{len(sb.multi_primary_rounds)} with 2 primaries but 1 writable",
     )
     if m.demotion_expected:
@@ -238,7 +250,7 @@ def _result_table(r: RunResult) -> Table:
         table.add_row(
             "demotion",
             _fmt(m.demotion_sec),
-            f"fault -> {m.failed_node} stops taking writes (last accepted at {last})",
+            f"fault -> {m.demotion_node} stops taking writes (last accepted at {last})",
         )
     if m.failed_node:
         table.add_row(
@@ -278,7 +290,7 @@ def _checks_table(r: RunResult) -> Table:
 
 
 SUITE_COLUMNS = (
-    "scenario", "result", "detect", "RTO w", "ro win", "RTO r",
+    "scenario", "result", "detect", "RTO w", "ack gap", "ro win", "RTO r",
     "lost", "unk", "split", "demote", "rejoin", "failed checks",
 )  # fmt: skip
 
@@ -294,6 +306,7 @@ def _suite_table(suite: SuiteResult) -> Table:
             _pf(row.passed),
             _fmt(row.detection_sec),
             _fmt(row.rto_write_sec),
+            _fmt(row.ack_gap_sec),
             _fmt(row.readonly_window_sec),
             _fmt(row.rto_read_sec),
             str(row.lost_acked_commits),
@@ -343,7 +356,9 @@ def run(
         str | None, typer.Argument(help="Scenario name (a file in scenarios/).")
     ] = None,
     all_: Annotated[bool, typer.Option("--all", help="Run every scenario with the tag.")] = False,
-    tag: Annotated[str, typer.Option(help="With --all: which tag to run (or 'all').")] = "core",
+    tag: Annotated[
+        str, typer.Option(help="With --all: tags to run, comma separated, or 'all'.")
+    ] = "core",
     reports_dir: Annotated[
         Path | None, typer.Option(help="Where to write reports (default: <repo>/reports).")
     ] = None,

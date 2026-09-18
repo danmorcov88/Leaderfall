@@ -113,9 +113,11 @@ class Timing:
     retry_timeout: int
 
 
+# Patroni refuses a ttl under 20 s: config.py silently raises anything lower to 20. The
+# "fast" profile therefore uses 20, the real floor, so that the config says what runs.
 PROFILES: Mapping[PatroniProfile, Timing] = {
     PatroniProfile.DEFAULT: Timing(ttl=30, loop_wait=10, retry_timeout=10),
-    PatroniProfile.FAST: Timing(ttl=15, loop_wait=5, retry_timeout=5),
+    PatroniProfile.FAST: Timing(ttl=20, loop_wait=5, retry_timeout=5),
 }
 
 DEFAULT_MAX_LAG_ON_FAILOVER = 1_048_576  # bytes, Patroni's own default

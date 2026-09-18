@@ -53,6 +53,7 @@ where = ["src"]
 target-version = "py312"
 line-length = 100
 src = ["src", "tests"]
+extend-exclude = ["docs", "README.md"]  # code blocks in docs quote other projects verbatim
 
 [tool.ruff.lint]
 select = [

@@ -29,6 +29,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from leaderfall import __version__, faults, measure, slo
 from leaderfall.cluster import (
+    DEFAULT_MAX_LAG_ON_FAILOVER,
     ETCD_CONTAINERS,
     HAPROXY_CONTAINER,
     HAPROXY_WRITE_PORT,
@@ -46,7 +47,14 @@ from leaderfall.cluster import (
     find_repo_root,
     wait_until,
 )
-from leaderfall.faults import FaultError, FaultTiming, Target, TargetKind, resolve_target
+from leaderfall.faults import (
+    FaultError,
+    FaultTiming,
+    Target,
+    TargetContext,
+    TargetKind,
+    resolve_target,
+)
 from leaderfall.workload import (
     Clock,
     Ledger,
@@ -63,10 +71,20 @@ from leaderfall.workload import (
 # YAML model
 # --------------------------------------------------------------------------------------
 
-FAULTS = frozenset({"kill", "stop", "pause", "partition", "switchover", "restart_service"})
-ACTIONS = frozenset({"start", "unpause", "heal", "kill", "stop", "pause", "partition"})
-WAITS = frozenset({"new_leader", "writes_ok", "cluster_healthy", "node_streaming", "node_fenced"})
-KEEPS_NODE_UP = frozenset({"partition", "pause"})  # faults after which the node still runs
+FAULTS = frozenset(
+    {"kill", "stop", "pause", "partition", "switchover", "restart_service", "netem", "fill_disk"}
+)
+ACTIONS = frozenset(
+    {
+        "start", "unpause", "heal", "kill", "stop", "pause", "partition",
+        "netem", "netem_clear", "write_wal", "free_disk",
+    }
+)  # fmt: skip
+TARGETLESS_ACTIONS = frozenset({"write_wal"})
+WAITS = frozenset(
+    {"new_leader", "writes_ok", "cluster_healthy", "node_streaming", "node_fenced", "no_leader"}
+)
+NODE_DOWN_ACTIONS = frozenset({"kill", "stop", "pause", "partition"})  # a node is "hit"
 
 
 class ClusterSpec(BaseModel):
@@ -74,6 +92,7 @@ class ClusterSpec(BaseModel):
 
     patroni_profile: PatroniProfile = PatroniProfile.DEFAULT
     synchronous_mode: SyncMode = SyncMode.OFF
+    maximum_lag_on_failover: int = Field(default=DEFAULT_MAX_LAG_ON_FAILOVER, ge=0)
 
     @field_validator("synchronous_mode", mode="before")
     @classmethod
@@ -85,7 +104,11 @@ class ClusterSpec(BaseModel):
         return value
 
     def config(self) -> ClusterConfig:
-        return ClusterConfig(profile=self.patroni_profile, sync=self.synchronous_mode)
+        return ClusterConfig(
+            profile=self.patroni_profile,
+            sync=self.synchronous_mode,
+            maximum_lag_on_failover=self.maximum_lag_on_failover,
+        )
 
 
 class WorkloadSpec(BaseModel):
@@ -112,6 +135,8 @@ class Step(BaseModel):
     signal: str = "SIGKILL"
     candidate: str | None = None  # switchover only
     grace_sec: int | None = None  # stop / restart_service only
+    netem: str | None = None  # netem only, e.g. "delay 500ms"
+    mb: int = Field(default=8, ge=1)  # write_wal only: megabytes of WAL to generate
     timeout_sec: float = Field(default=120.0, gt=0)
     max_lag_bytes: int = 0  # node_streaming only
 
@@ -130,8 +155,11 @@ class Step(BaseModel):
             raise ValueError(f"unknown action {self.action!r}; known: {sorted(ACTIONS)}")
         if self.wait_for is not None and self.wait_for not in WAITS:
             raise ValueError(f"unknown wait_for {self.wait_for!r}; known: {sorted(WAITS)}")
-        if (self.fault or self.action) and self.target is None:
+        needs_target = (self.fault or self.action) and self.action not in TARGETLESS_ACTIONS
+        if needs_target and self.target is None:
             raise ValueError(f"{self.fault or self.action} needs a target")
+        if (self.fault or self.action) == "netem" and not self.netem:
+            raise ValueError("netem needs a spec, e.g. netem: delay 500ms")
         return self
 
     @property
@@ -176,9 +204,11 @@ def scenarios_dir() -> Path:
 
 
 def load_all(directory: Path | None = None, tag: str | None = None) -> list[ScenarioSpec]:
+    """Scenarios in ``directory``; ``tag`` may be one tag, a comma list, or ``all``."""
     specs = [ScenarioSpec.load(p) for p in sorted((directory or scenarios_dir()).glob("*.yml"))]
-    if tag and tag != "all":
-        specs = [s for s in specs if tag in s.tags]
+    wanted = {t.strip() for t in (tag or "").split(",") if t.strip()}
+    if wanted and "all" not in wanted:
+        specs = [s for s in specs if wanted & set(s.tags)]
     return specs
 
 
@@ -236,6 +266,9 @@ class ScenarioError(RuntimeError):
     pass
 
 
+_EMPTY_STATE = ClusterState(members=[])
+
+
 # --------------------------------------------------------------------------------------
 # Runner
 # --------------------------------------------------------------------------------------
@@ -266,9 +299,19 @@ class ScenarioRunner:
         self.fault_log: list[FaultTiming] = []
         # Set by the steps:
         self.first_fault: FaultTiming | None = None
-        self.failed: Target | None = None
-        self.old_leader: str | None = None
+        self.targets = TargetContext()
         self.recovery: FaultTiming | None = None
+        self.demotion_target: str | None = None  # set when the scenario waits for node_fenced
+        self.rejoin_confirmed_at: float | None = None  # a wait saw the failed node streaming
+        self.hit: list[Target] = []  # every container a fault or action took down
+
+    @property
+    def failed(self) -> Target | None:
+        return self.targets.failed
+
+    @property
+    def old_leader(self) -> str | None:
+        return self.targets.old_primary
 
     # ---- helpers ------------------------------------------------------------------
 
@@ -291,6 +334,17 @@ class ScenarioRunner:
         except ClusterUnreachableError as exc:
             raise ScenarioError(f"cannot resolve target: {exc}") from exc
 
+    def _resolve(self, spec: str, need_leader: bool = False) -> Target:
+        """Resolve a target, asking Patroni only when the name needs the live topology.
+
+        ``failed_node``, ``old_primary`` and friends must work while nobody answers.
+        """
+        needs_state = spec in {"primary", "sync_replica", "any_replica"}
+        state = self._state() if needs_state or need_leader else None
+        if need_leader and state is not None and self.targets.old_primary is None:
+            self.targets.old_primary = state.leader.name if state.leader else None
+        return resolve_target(spec, state if state is not None else _EMPTY_STATE, self.targets)
+
     def _new_report_dir(self) -> Path:
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         path = self.reports_root / f"{stamp}-{self.spec.name}"
@@ -306,12 +360,17 @@ class ScenarioRunner:
     def _do_fault_or_action(self, step: Step) -> None:
         name = step.fault or step.action
         assert name is not None
+        if name == "write_wal":
+            timing = faults.write_wal(self.clock, step.mb)
+            self.fault_log.append(timing)
+            self.event(
+                step.kind,
+                f"write_wal {timing.detail} ({timing.done_at - timing.requested_at:.1f}s)",
+            )
+            return
         assert step.target is not None
-        state = self._state()
-        target = resolve_target(step.target, state, self.failed)
         is_first_fault = step.fault is not None and self.first_fault is None
-        if is_first_fault:
-            self.old_leader = state.leader.name if state.leader else None
+        target = self._resolve(step.target, need_leader=is_first_fault)
 
         if name == "kill":
             timing = faults.kill(self.clock, target, step.signal)
@@ -331,14 +390,31 @@ class ScenarioRunner:
             timing = faults.restart(self.clock, target, step.grace_sec or 10)
         elif name == "switchover":
             timing = faults.switchover(self.clock, self.patroni, target, step.candidate)
+        elif name == "netem":
+            timing = faults.netem(self.clock, target, step.netem or "")
+        elif name == "netem_clear":
+            timing = faults.netem_clear(self.clock, target)
+        elif name == "fill_disk":
+            timing = faults.fill_disk(self.clock, target)
+        elif name == "free_disk":
+            timing = faults.free_disk(self.clock, target)
         else:  # pragma: no cover - guarded by the model validator
             raise ScenarioError(f"unknown step {name!r}")
 
         self.fault_log.append(timing)
         if is_first_fault:
-            self.first_fault, self.failed = timing, target
+            self.first_fault, self.targets.failed = timing, target
+        elif (
+            name in NODE_DOWN_ACTIONS
+            and target.kind is TargetKind.PG
+            and target != self.targets.failed
+            and self.targets.failed_2 is None
+        ):
+            self.targets.failed_2 = target
+        if name in NODE_DOWN_ACTIONS and target not in self.hit:
+            self.hit.append(target)
         if (
-            step.action in {"start", "unpause", "heal"}
+            step.action in {"start", "unpause", "heal", "netem_clear", "free_disk"}
             and self.failed is not None
             and target == self.failed
             and self.recovery is None
@@ -352,7 +428,9 @@ class ScenarioRunner:
         assert what is not None
         target: Target | None = None
         if what in {"node_streaming", "node_fenced"}:
-            target = resolve_target(step.target or "failed_node", self._state(), self.failed)
+            target = self._resolve(step.target or "failed_node")
+            if what == "node_fenced" and target.node == self.old_leader:
+                self.demotion_target = target.node
 
         def check() -> tuple[bool, Any, str | None]:
             rounds = poller.snapshot()
@@ -376,6 +454,14 @@ class ScenarioRunner:
                     return False, None, str(exc)
                 problems = state.health_problems(sync_standbys=self.config.expected_sync_standbys)
                 return not problems, state, "; ".join(problems) or None
+            if what == "no_leader":
+                # Patroni reports no leader, and no node accepts writes.
+                ok = last is not None and last.leader is None and not last.writable
+                return (
+                    ok,
+                    None,
+                    f"leader={last.leader if last else '?'} writable={last.writable if last else '?'}",
+                )
             assert target is not None
             assert target.node is not None
             if what == "node_streaming":
@@ -398,6 +484,15 @@ class ScenarioRunner:
         if what == "new_leader":
             detection, leader = value
             detail = f"{leader} after {detection:.1f}s"
+        if self.rejoin_confirmed_at is None and self.recovery is not None and self.failed:
+            streaming = (what == "node_streaming" and target == self.failed) or (
+                what == "cluster_healthy"
+                and self.failed.node is not None
+                and (m := value.member(self.failed.node)) is not None
+                and m.is_streaming_replica
+            )
+            if streaming:
+                self.rejoin_confirmed_at = self.clock.now()
         self.event(f"wait:{what}", detail)
 
     def _do_hold(self, step: Step) -> None:
@@ -410,20 +505,45 @@ class ScenarioRunner:
     # ---- best-effort recovery when a step fails --------------------------------------
 
     def _recover(self) -> None:
-        if self.failed is None:
-            return
-        status = faults.container_status(self.failed.container)
-        actions = {f.action for f in self.fault_log}
+        for target in self.hit:
+            self._recover_one(target)
+        for f in self.fault_log:
+            if f.action == "fill_disk" and not any(
+                g.action == "free_disk" and g.target == f.target for g in self.fault_log
+            ):
+                try:
+                    self.fault_log.append(
+                        faults.free_disk(self.clock, Target(f.target, TargetKind.PG, f.node))
+                    )
+                    self.event("recover", f"freed pg_wal on {f.target}")
+                except FaultError as exc:
+                    self.event("recover_failed", str(exc))
+            if f.action == "netem" and not any(
+                g.action == "netem_clear" and g.target == f.target for g in self.fault_log
+            ):
+                try:
+                    node = f.node or ""
+                    self.fault_log.append(
+                        faults.netem_clear(self.clock, Target(f.target, TargetKind.PG, node))
+                    )
+                    self.event("recover", f"cleared netem on {f.target}")
+                except FaultError as exc:
+                    self.event("recover_failed", str(exc))
+
+    def _recover_one(self, target: Target) -> None:
+        status = faults.container_status(target.container)
+        hits = [f for f in self.fault_log if f.target == target.container]
+        actions = {f.action for f in hits}
         try:
             if status == "paused":
-                self.fault_log.append(faults.unpause(self.clock, self.failed))
-                self.event("recover", f"unpaused {self.failed.label}")
+                self.fault_log.append(faults.unpause(self.clock, target))
+                self.event("recover", f"unpaused {target.label}")
             elif status in {"exited", "created", "dead"}:
-                self.fault_log.append(faults.start(self.clock, self.failed))
-                self.event("recover", f"started {self.failed.label}")
+                self.fault_log.append(faults.start(self.clock, target))
+                self.event("recover", f"started {target.label}")
             elif status == "running" and "partition" in actions and "heal" not in actions:
-                self.fault_log.append(faults.heal(self.clock, self.failed))
-                self.event("recover", f"reconnected {self.failed.label}")
+                self.fault_log.append(faults.heal(self.clock, target))
+                self.event("recover", f"reconnected {target.label}")
         except FaultError as exc:
             self.event("recover_failed", str(exc))
 
@@ -532,24 +652,32 @@ class ScenarioRunner:
         )
         detection, new_leader = (None, None)
         demotion = last_write = timeline_before = None
-        # Demotion is only a thing when the old primary stayed up but lost its lease.
-        demotion_expected = (
-            self.first_fault is not None
-            and self.first_fault.action in KEEPS_NODE_UP
-            and failed_node is not None
-            and failed_node == self.old_leader
-        )
+        # Demotion is measured when the scenario waited for the old primary to fence itself.
+        demotion_expected = self.demotion_target is not None
         if fault_at is not None:
             detection, new_leader = measure.detection_time(rounds, fault_at, self.old_leader)
             if demotion_expected:
-                until = self.recovery.requested_at if self.recovery else None
-                demotion, last_write = measure.demotion_time(rounds, fault_at, failed_node, until)
+                # The window closes when service is restored (etcd back, network healed):
+                # the old primary may legitimately be leader again after that. A thaw is
+                # the exception: the fencing only starts once the node is unpaused.
+                until = (
+                    self.recovery.requested_at
+                    if self.recovery and self.recovery.action != "unpause"
+                    else None
+                )
+                demotion, last_write = measure.demotion_time(
+                    rounds, fault_at, self.demotion_target, until
+                )
             timeline_before = measure.timeline_at(rounds, fault_at, self.old_leader)
         rejoin = (
             measure.rejoin_time(rounds, self.recovery.done_at, failed_node)
             if self.recovery and failed_node
             else None
         )
+        if rejoin is None and self.recovery and self.rejoin_confirmed_at is not None:
+            # The poller had not sampled the node yet when the run ended, but a wait step
+            # saw it streaming: use that moment (a slight overestimate).
+            rejoin = self.rejoin_confirmed_at - self.recovery.done_at
         metrics = measure.Metrics(
             failed_node=failed_node,
             recovery_action=self.recovery.action if self.recovery else None,
@@ -557,10 +685,12 @@ class ScenarioRunner:
             new_leader=new_leader,
             detection_sec=detection,
             demotion_expected=demotion_expected,
+            demotion_node=self.demotion_target,
             demotion_sec=demotion,
             old_primary_last_write_sec=last_write,
             write_outage=measure.write_outage(entries, fault_at if fault_at is not None else now),
             rto_read_sec=measure.rto_read(reads, run_end=now),
+            reads_on_primary=sum(s.on_primary for s in reads),
             rpo=rpo,
             split_brain=measure.split_brain(rounds),
             rejoin_sec=rejoin,
