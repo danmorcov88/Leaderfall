@@ -11,6 +11,7 @@ import json
 import os
 import subprocess
 import sys
+import webbrowser
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
@@ -28,6 +29,7 @@ from leaderfall.cluster import (
     ClusterConfig,
     ClusterState,
     ClusterUnreachableError,
+    Compose,
     PatroniClient,
     PatroniProfile,
     SyncMode,
@@ -35,7 +37,19 @@ from leaderfall.cluster import (
     expected_sync_standbys,
     find_repo_root,
 )
-from leaderfall.report import SuiteResult, SuiteRow, write_run, write_suite
+from leaderfall.report import (
+    SuiteResult,
+    SuiteRow,
+    build_site,
+    latest_report_dir,
+    load_run,
+    load_suite,
+    render_suite_html,
+    render_suite_markdown,
+    update_readme_results,
+    write_run,
+    write_suite,
+)
 from leaderfall.scenario import (
     RunResult,
     ScenarioRunner,
@@ -128,10 +142,13 @@ def up(
     ] = SyncMode.OFF,
     timeout: Annotated[float, typer.Option(help="Seconds to wait for a healthy cluster.")] = 180.0,
     build: Annotated[bool, typer.Option(help="Build the Patroni image first.")] = True,
+    monitoring: Annotated[
+        bool, typer.Option(help="Also start Prometheus and Grafana (compose profile).")
+    ] = False,
 ) -> None:
     """Start the cluster and wait until it has one leader and two streaming replicas."""
     config = ClusterConfig(profile=profile, sync=sync)
-    cluster = Cluster(log=_log)
+    cluster = Cluster(compose=Compose(profiles=("monitoring",) if monitoring else ()), log=_log)
     try:
         result = cluster.up(config, timeout=timeout, build=build)
     except FileNotFoundError as exc:
@@ -151,6 +168,7 @@ def up(
         console.print(
             f"writes: localhost:{HAPROXY_WRITE_PORT}  reads: localhost:{HAPROXY_READ_PORT}  "
             f"stats: http://localhost:{HAPROXY_STATS_PORT}/"
+            + ("  grafana: http://localhost:3000/d/leaderfall" if monitoring else "")
         )
 
 
@@ -419,6 +437,54 @@ def run(
 
 
 @app.command()
+def report(
+    path: Annotated[
+        Path | None,
+        typer.Argument(help="A run or suite directory under reports/ (default: the latest)."),
+    ] = None,
+    open_: Annotated[
+        bool, typer.Option("--open", help="Open the HTML report in a browser.")
+    ] = False,
+    site: Annotated[
+        Path | None, typer.Option(help="Suite only: also build a self-contained site here.")
+    ] = None,
+    update_readme: Annotated[
+        bool, typer.Option(help="Suite only: rewrite the results table in README.md.")
+    ] = False,
+) -> None:
+    """Rebuild the Markdown and HTML report for the last run or suite."""
+    root = find_repo_root()
+    target = path or latest_report_dir(root / "reports")
+    if target is None or not target.is_dir():
+        _fail("no report found; run a scenario first")
+        return
+    if (target / "suite.json").is_file():
+        suite = load_suite(target)
+        (target / "suite.md").write_text(render_suite_markdown(suite), encoding="utf-8")
+        links = {
+            row.scenario: (Path(row.report_dir) / "report.html").as_uri() for row in suite.rows
+        }
+        page = target / "index.html"
+        page.write_text(render_suite_html(suite, links), encoding="utf-8")
+        if site is not None:
+            build_site(target, site)
+            page = site / "index.html"
+            console.print(f"site: {site}")
+        if update_readme:
+            changed = update_readme_results(root / "README.md", suite)
+            console.print("README results table " + ("updated" if changed else "unchanged"))
+    elif (target / "result.json").is_file():
+        write_run(load_run(target))
+        page = target / "report.html"
+    else:
+        _fail(f"{target} is neither a run nor a suite directory")
+        return
+    console.print(f"report: {page}")
+    if open_:
+        webbrowser.open(page.as_uri())
+
+
+@app.command()
 def down(
     volumes: Annotated[
         bool, typer.Option("--volumes", help="Also delete the data volumes.")
@@ -426,7 +492,7 @@ def down(
 ) -> None:
     """Stop the cluster. Data volumes are kept unless --volumes is given."""
     try:
-        Cluster(log=_log).down(volumes=volumes)
+        Cluster(compose=Compose(profiles=("monitoring",)), log=_log).down(volumes=volumes)
     except FileNotFoundError as exc:
         _fail(str(exc))
     except subprocess.CalledProcessError as exc:
