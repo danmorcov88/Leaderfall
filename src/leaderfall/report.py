@@ -47,6 +47,7 @@ class SuiteRow(BaseModel):
     error: str | None
     detection_sec: float | None
     rto_write_sec: float | None
+    ack_gap_sec: float | None
     readonly_window_sec: float | None
     rto_read_sec: float | None
     lost_acked_commits: int
@@ -68,6 +69,7 @@ class SuiteRow(BaseModel):
             error=r.error,
             detection_sec=m.detection_sec,
             rto_write_sec=m.write_outage.rto_write_sec,
+            ack_gap_sec=m.write_outage.ack_gap_sec,
             readonly_window_sec=m.write_outage.readonly_window_sec,
             rto_read_sec=m.rto_read_sec,
             lost_acked_commits=m.rpo.lost_acked_commits,
