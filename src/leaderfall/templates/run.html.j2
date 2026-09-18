@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>leaderfall: {{ r.scenario }}</title>
+<style>{{ css }}</style>
+</head>
+<body>
+<h1>{{ r.scenario }} <span class="badge {{ 'pass' if r.passed else 'fail' }}">{{ 'pass' if r.passed else 'FAIL' }}</span></h1>
+<p class="sub">{{ r.description }}<br>
+{{ r.started_at }} · profile <code>{{ r.cluster.profile }}</code> · sync <code>{{ r.cluster.sync }}</code> · {{ r.workload.rate_per_sec|int }} writes/s · {{ r.duration_sec|round(0)|int }} s · leaderfall {{ r.leaderfall_version }}</p>
+
+{% if r.error %}<p class="fail">Run aborted: {{ r.error }}</p>{% endif %}
+
+<div class="cards">
+  <div class="card"><div class="v">{{ fmt(m.detection_sec) }}</div><div class="k">detection</div></div>
+  <div class="card"><div class="v">{{ fmt(m.write_outage.rto_write_sec) }}</div><div class="k">RTO write</div></div>
+  <div class="card"><div class="v">{{ fmt(m.write_outage.ack_gap_sec) }}</div><div class="k">commit stall</div></div>
+  <div class="card"><div class="v">{{ fmt(m.rto_read_sec) }}</div><div class="k">RTO read</div></div>
+  <div class="card"><div class="v {{ 'fail' if m.rpo.lost_acked_commits else '' }}">{{ m.rpo.lost_acked_commits }}</div><div class="k">lost acked commits</div></div>
+  <div class="card"><div class="v {{ 'fail' if m.split_brain.detected else '' }}">{{ 'yes' if m.split_brain.detected else 'no' }}</div><div class="k">split brain</div></div>
+  <div class="card"><div class="v">{{ fmt(m.rejoin_sec) }}</div><div class="k">rejoin</div></div>
+</div>
+
+<h2>Timeline</h2>
+{{ svg }}
+
+<h2>SLO checks</h2>
+<table>
+<tr><th>check</th><th class="num">limit</th><th class="num">actual</th><th>result</th><th>note</th></tr>
+{% for c in r.checks %}
+<tr><td>{{ c.name }}</td><td class="num">{{ c.limit }}</td><td class="num">{{ c.actual }}</td><td class="{{ 'pass' if c.passed else 'fail' }}">{{ 'pass' if c.passed else 'FAIL' }}</td><td>{{ c.note or '' }}</td></tr>
+{% endfor %}
+</table>
+
+<h2>Metrics</h2>
+<table>
+<tr><th>metric</th><th class="num">value</th><th>note</th></tr>
+{% for name, value, note in rows %}
+<tr><td>{{ name }}</td><td class="num">{{ value }}</td><td>{{ note }}</td></tr>
+{% endfor %}
+</table>
+
+<h2>Events</h2>
+<table>
+<tr><th class="num">t</th><th>event</th><th>detail</th></tr>
+{% for e in r.events %}
+<tr><td class="num">{{ '%.2f'|format(e.t) }} s</td><td>{{ e.name }}</td><td>{{ e.detail or '' }}</td></tr>
+{% endfor %}
+</table>
+
+<h2>Environment</h2>
+<table>
+{% for k, v in r.versions.items() %}<tr><th>{{ k }}</th><td>{{ v }}</td></tr>{% endfor %}
+{% for k, v in r.host.items() %}<tr><th>host {{ k }}</th><td>{{ v }}</td></tr>{% endfor %}
+</table>
+
+<footer>Raw data next to this file: result.json, timeline.json, ledger.jsonl, rounds.jsonl, reads.jsonl. Every number above can be recomputed from them.</footer>
+</body>
+</html>

@@ -12,6 +12,7 @@ import subprocess
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -416,11 +417,15 @@ class PatroniClient:
 
 
 class Compose:
-    def __init__(self, root: Path | None = None) -> None:
+    def __init__(self, root: Path | None = None, profiles: tuple[str, ...] = ()) -> None:
         self.root = root or find_repo_root()
+        self.profiles = profiles
 
     def _run(self, *args: str, env: Mapping[str, str] | None = None) -> None:
-        cmd = ["docker", "compose", "-p", COMPOSE_PROJECT, "-f", COMPOSE_FILE, *args]
+        cmd = ["docker", "compose", "-p", COMPOSE_PROJECT, "-f", COMPOSE_FILE]
+        for profile in self.profiles:
+            cmd += ["--profile", profile]
+        cmd += list(args)
         subprocess.run(cmd, cwd=self.root, env={**os.environ, **(env or {})}, check=True)
 
     def build(self) -> None:
@@ -433,6 +438,22 @@ class Compose:
         if build:
             self.build()
         self._run("--progress", "quiet", "up", "-d", "--remove-orphans")
+
+    def restart(self, service: str) -> None:
+        self._run("--progress", "quiet", "restart", service)
+
+    def haproxy_config_is_stale(self) -> bool:
+        """True when haproxy.cfg was edited after the HAProxy container last started."""
+        cfg = self.root / "docker" / "haproxy" / "haproxy.cfg"
+        try:
+            started = subprocess.run(
+                ["docker", "inspect", "--format", "{{.State.StartedAt}}", HAPROXY_CONTAINER],
+                capture_output=True, text=True, check=True, timeout=15,
+            ).stdout.strip()  # fmt: skip
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            return False
+        started_at = datetime.fromisoformat(started[:26] + "+00:00").timestamp()
+        return cfg.stat().st_mtime > started_at
 
     def down(self, *, volumes: bool = False) -> None:
         args = ["down", "--remove-orphans"]
@@ -532,6 +553,9 @@ class Cluster:
         start = time.monotonic()
         self.log("docker compose up")
         self.compose.up(build=build)
+        if self.compose.haproxy_config_is_stale():
+            self.log("haproxy.cfg changed since HAProxy started: restarting it")
+            self.compose.restart("haproxy")
 
         self.log("waiting for one leader and two streaming replicas")
         state, to_healthy = self.wait_healthy(timeout)

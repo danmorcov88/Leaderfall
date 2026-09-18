@@ -11,7 +11,7 @@ PROFILE ?= default
 SYNC    ?= off
 TAG     ?= core
 
-.PHONY: help install lint format test up status chaos chaos-all report down clean
+.PHONY: help install lint format test up status chaos chaos-all report monitoring down clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -48,8 +48,11 @@ chaos: install ## Run the smoke scenario (primary-sigkill)
 chaos-all: install ## Run the whole suite (TAG=core|advanced|all)
 	$(LF) run --all --tag $(TAG)
 
-report: install ## Build Markdown + HTML report from the last run
+report: install ## Rebuild the Markdown + HTML report of the last run or suite
 	$(LF) report
+
+monitoring: install ## Start the cluster with Prometheus + Grafana
+	$(LF) up --profile $(PROFILE) --sync $(SYNC) --monitoring
 
 down: install ## Stop the cluster (VOLUMES=1 also deletes the data)
 	$(LF) down $(if $(VOLUMES),--volumes,)
