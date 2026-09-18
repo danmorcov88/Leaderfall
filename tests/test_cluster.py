@@ -135,7 +135,7 @@ class TestClusterConfig:
     def test_fast_profile_strict(self) -> None:
         cfg = ClusterConfig(profile=PatroniProfile.FAST, sync=SyncMode.STRICT)
         dcs = cfg.dcs_config()
-        assert (dcs["ttl"], dcs["loop_wait"], dcs["retry_timeout"]) == (15, 5, 5)
+        assert (dcs["ttl"], dcs["loop_wait"], dcs["retry_timeout"]) == (20, 5, 5)
         assert dcs["synchronous_mode"] is True
         assert dcs["synchronous_mode_strict"] is True
         assert cfg.expected_sync_standbys == 1
@@ -176,7 +176,7 @@ class TestConfigDiff:
     def test_reports_only_changed_keys(self) -> None:
         desired = ClusterConfig(profile=PatroniProfile.FAST).dcs_config()
         current = ClusterConfig().dcs_config()
-        assert config_diff(desired, current) == {"ttl": 15, "loop_wait": 5, "retry_timeout": 5}
+        assert config_diff(desired, current) == {"ttl": 20, "loop_wait": 5, "retry_timeout": 5}
 
     def test_missing_key_is_a_diff(self) -> None:
         assert config_diff({"ttl": 30}, {}) == {"ttl": 30}

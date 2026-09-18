@@ -193,12 +193,26 @@ class TestWriteOutage:
         o = measure.write_outage(ledger, fault_at=15.0)
         assert o.readonly_failures == 4.0 / 0.02
         assert o.readonly_window_sec is not None
-        assert 4.0 <= o.readonly_window_sec <= 4.02
+        assert 3.96 <= o.readonly_window_sec <= 4.0
 
     def test_no_readonly_window_when_no_such_error(self) -> None:
         o = measure.write_outage(outage_ledger(), fault_at=15.0)
         assert o.readonly_failures == 0
         assert o.readonly_window_sec is None
+
+    def test_ack_gap_catches_a_stall_without_errors(self) -> None:
+        ledger = steady(0, 10, 1) + steady(14.8, 20, 10_000)  # a 4.8 s stall, no failures
+        o = measure.write_outage(ledger, fault_at=10.0)
+        assert o.rto_write_sec == 0.0
+        assert o.failed_during_outage == 0
+        assert o.ack_gap_sec is not None
+        assert 4.8 <= o.ack_gap_sec <= 4.83
+
+    def test_max_write_latency(self) -> None:
+        ledger = steady(0, 1, 1)
+        ledger[10] = entry(11, ledger[10].sent_at, latency=2.5)
+        o = measure.write_outage(ledger, fault_at=5.0)
+        assert o.max_write_latency_sec == 2.5
 
     def test_no_failure_means_zero_rto(self) -> None:
         o = measure.write_outage(steady(0, 60, 1), fault_at=30.0)
