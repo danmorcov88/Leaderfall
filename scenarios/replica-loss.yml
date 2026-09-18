@@ -1,0 +1,25 @@
+name: replica-loss
+description: Kill one replica. Writes must not stop and nothing must fail over.
+tags: [core]
+cluster:
+  patroni_profile: default
+  synchronous_mode: false
+workload:
+  rate_per_sec: 50
+  warmup_sec: 15
+steps:
+  - fault: kill
+    target: any_replica
+    signal: SIGKILL
+  - hold_sec: 20                  # writes continue while the replica is gone
+  - action: start
+    target: failed_node
+  - wait_for: node_streaming
+    timeout_sec: 180
+expect:
+  failover: false
+  rto_write_sec_max: 1            # writes must not be interrupted at all
+  lost_acked_commits_max: 0
+  detection_sec_max: null
+  split_brain: false
+  final_topology: 1-leader-2-replicas

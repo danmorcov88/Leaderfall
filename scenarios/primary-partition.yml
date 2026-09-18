@@ -1,0 +1,30 @@
+name: primary-partition
+description: Cut the primary off the network. It must demote itself; the others elect a new leader; after healing it rejoins with pg_rewind.
+tags: [core]
+cluster:
+  patroni_profile: default
+  synchronous_mode: false
+workload:
+  rate_per_sec: 50
+  warmup_sec: 15
+steps:
+  - fault: partition
+    target: primary
+  - wait_for: new_leader
+    timeout_sec: 90
+  - wait_for: node_fenced         # the isolated old primary stops taking writes on its own
+    target: failed_node
+    timeout_sec: 90
+  - wait_for: writes_ok
+    timeout_sec: 60
+  - hold_sec: 10
+  - action: heal
+    target: failed_node
+  - wait_for: node_streaming
+    timeout_sec: 180
+expect:
+  failover: true
+  rto_write_sec_max: 45
+  lost_acked_commits_max: null
+  split_brain: false
+  final_topology: 1-leader-2-replicas

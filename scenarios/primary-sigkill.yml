@@ -1,0 +1,29 @@
+name: primary-sigkill
+description: Kill the primary process with SIGKILL during steady writes.
+tags: [core, smoke]
+cluster:
+  patroni_profile: default
+  synchronous_mode: false
+workload:
+  writers: 1
+  rate_per_sec: 50
+  warmup_sec: 15
+steps:
+  - fault: kill
+    target: primary
+    signal: SIGKILL
+  - wait_for: new_leader
+    timeout_sec: 90
+  - wait_for: writes_ok
+    timeout_sec: 60
+  - hold_sec: 10            # exercise the new primary before the old one comes back
+  - action: start
+    target: failed_node
+  - wait_for: node_streaming
+    timeout_sec: 180
+expect:
+  failover: true
+  rto_write_sec_max: 45
+  lost_acked_commits_max: null   # async: report only
+  split_brain: false
+  final_topology: 1-leader-2-replicas
