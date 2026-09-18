@@ -375,6 +375,24 @@ class PatroniClient:
             errors.append(f"{node.name}: HTTP {response.status_code} {response.text[:80]}")
         raise ClusterUnreachableError(f"no node accepted PATCH /config: {', '.join(errors)}")
 
+    def post(self, path: str, body: Mapping[str, Any], timeout: float = 90.0) -> str:
+        """POST to the first node that accepts it. Returns the text reply.
+
+        Long timeout: ``/switchover`` answers only when the switchover is complete.
+        """
+        errors: list[str] = []
+        for node in self._candidates():
+            try:
+                response = self._http.post(self.url(node, path), json=dict(body), timeout=timeout)
+            except httpx.HTTPError as exc:
+                errors.append(f"{node.name}: {exc.__class__.__name__}")
+                continue
+            if response.status_code in (200, 202):
+                self._preferred = node
+                return response.text.strip()
+            errors.append(f"{node.name}: HTTP {response.status_code} {response.text[:120]}")
+        raise ClusterUnreachableError(f"no node accepted POST {path}: {', '.join(errors)}")
+
     def node_status(self, node: Node) -> dict[str, Any] | None:
         """``GET /patroni`` on one node, or ``None`` if it does not answer."""
         try:
