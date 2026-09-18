@@ -10,12 +10,14 @@ defaults:
   lost_acked_commits_max: null   # async replication may lose acked commits; report only
 
 profiles:
+  # detection_sec_max is ttl + loop_wait (the theoretical bound) + 2 s for the poller's
+  # 0.5 s sampling and the election itself. Measured maxima so far: 38.2 s / 25.2 s.
   default:                       # ttl 30 / loop_wait 10 / retry_timeout 10
-    detection_sec_max: 40
+    detection_sec_max: 42
     rto_write_sec_max: 45
     demotion_sec_max: 40           # ttl: an isolated primary must stop taking writes within its lease
   fast:                          # ttl 20 (Patroni's minimum) / loop_wait 5 / retry_timeout 5
-    detection_sec_max: 25        # ttl + loop_wait
+    detection_sec_max: 27
     rto_write_sec_max: 30
     demotion_sec_max: 20
 
