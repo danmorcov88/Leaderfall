@@ -9,6 +9,7 @@ Commands are added phase by phase:
 
 import json
 import subprocess
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -30,6 +31,10 @@ from leaderfall.cluster import (
     WaitTimeoutError,
     expected_sync_standbys,
 )
+from leaderfall.report import write_run
+from leaderfall.scenario import RunResult, ScenarioError, ScenarioRunner, WorkloadSpec
+
+SCENARIOS = {"primary-sigkill"}
 
 app = typer.Typer(
     name="leaderfall",
@@ -168,6 +173,108 @@ def status(
         console.print(
             f"[green]healthy[/green]: 1 leader, 2 streaming replicas{sync_note}, same timeline"
         )
+
+
+def _fmt(value: float | None, unit: str = "s") -> str:
+    return "-" if value is None else f"{value:.1f}{unit}"
+
+
+def _result_table(r: RunResult) -> Table:
+    m = r.metrics
+    table = Table(title=f"{r.scenario}: {r.description}", title_justify="left")
+    table.add_column("metric")
+    table.add_column("value", justify="right")
+    table.add_column("note")
+    table.add_row("old leader -> new leader", f"{m.old_leader} -> {m.new_leader}", "")
+    table.add_row("detection", _fmt(m.detection_sec), "fault -> Patroni shows a new leader")
+    table.add_row("RTO write", _fmt(m.write_outage.rto_write_sec), "fault -> first acked write")
+    table.add_row("write gap", _fmt(m.write_outage.gap_sec), "last ack before -> first ack after")
+    table.add_row(
+        "read-only window",
+        _fmt(m.write_outage.readonly_window_sec),
+        f"{m.write_outage.readonly_failures} writes hit the new primary before it was writable",
+    )
+    table.add_row("RTO read", _fmt(m.rto_read_sec), "longest gap between good reads")
+    lost = m.rpo.lost_acked_commits
+    table.add_row(
+        "lost acked commits",
+        f"[red]{lost}[/red]" if lost else "0",
+        f"of {m.ledger.acked} acked" + (f": ids {m.rpo.lost_acked[:10]}" if lost else ""),
+    )
+    table.add_row(
+        "unknown commits",
+        str(m.ledger.unknown),
+        f"{len(m.rpo.unknown_present)} present, {len(m.rpo.unknown_missing)} missing",
+    )
+    sb = m.split_brain
+    table.add_row(
+        "split brain",
+        "[red]YES[/red]" if sb.detected else "no",
+        f"{len(sb.rounds)} rounds with 2 writable primaries, "
+        f"{len(sb.multi_primary_rounds)} with 2 primaries but 1 writable",
+    )
+    table.add_row("rejoin", _fmt(m.rejoin_sec), "node start -> streaming with lag 0")
+    table.add_row(
+        "timeline",
+        f"{m.timeline_before} -> {m.timeline_after}",
+        f"pg_rewind ran: {r.rewind.get('ran')}, diverged at {r.rewind.get('diverged_at_lsn')}",
+    )
+    table.add_row(
+        "ledger",
+        f"{m.ledger.attempts}",
+        f"{m.ledger.acked} acked, {m.ledger.failed} failed, {m.ledger.unknown} unknown",
+    )
+    table.add_row(
+        "final state",
+        "[green]healthy[/green]" if r.final.healthy else "[red]unhealthy[/red]",
+        f"leader {r.final.leader}, replicas {r.final.replicas}, rows {r.final.row_counts}",
+    )
+    return table
+
+
+@app.command()
+def run(
+    scenario: Annotated[str, typer.Argument(help="Scenario name. Phase 2: primary-sigkill.")],
+    profile: Annotated[PatroniProfile, typer.Option(help="Patroni timing profile.")] = (
+        PatroniProfile.DEFAULT
+    ),
+    sync: Annotated[SyncMode, typer.Option(help="Synchronous replication mode.")] = SyncMode.OFF,
+    rate: Annotated[float, typer.Option(help="Writes per second.")] = 50.0,
+    warmup: Annotated[
+        float, typer.Option(help="Seconds of steady writes before the fault.")
+    ] = 15.0,
+    post_recovery: Annotated[
+        float, typer.Option(help="Seconds of writes after recovery before restarting the node.")
+    ] = 10.0,
+    reports_dir: Annotated[
+        Path | None, typer.Option(help="Where to write reports (default: <repo>/reports).")
+    ] = None,
+    ensure_up: Annotated[
+        bool, typer.Option(help="Run `up` first so the cluster matches --profile/--sync.")
+    ] = True,
+) -> None:
+    """Run one scenario against the cluster and write its report."""
+    if scenario not in SCENARIOS:
+        _fail(f"unknown scenario {scenario!r}; available: {', '.join(sorted(SCENARIOS))}")
+    runner = ScenarioRunner(
+        ClusterConfig(profile=profile, sync=sync),
+        WorkloadSpec(rate_per_sec=rate, warmup_sec=warmup, post_recovery_sec=post_recovery),
+        reports_root=reports_dir,
+        log=_log,
+        ensure_up=ensure_up,
+    )
+    try:
+        result = runner.run_primary_sigkill()
+    except (ScenarioError, FileNotFoundError, WaitTimeoutError) as exc:
+        _fail(str(exc))
+    except subprocess.CalledProcessError as exc:
+        _fail(f"docker failed with exit code {exc.returncode}: {exc.stderr}")
+    else:
+        report_dir = write_run(result)
+        console.print(_result_table(result))
+        console.print(f"report: {report_dir}")
+        if not result.ok:
+            raise typer.Exit(1)
 
 
 @app.command()
