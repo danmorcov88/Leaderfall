@@ -92,3 +92,47 @@ There are no fixed sleeps. Every wait polls a real condition with a timeout, usi
 ## Image builds
 
 `leaderfall up` always runs `docker compose build --quiet` first. The build is cached and takes under a second when nothing changed. Attestations are disabled during the build (`BUILDX_NO_DEFAULT_ATTESTATIONS=1`); without that, BuildKit gives the image a new ID on every build and Compose recreates all three PostgreSQL containers, which causes a failover.
+
+## How a scenario is measured
+
+`leaderfall run primary-sigkill` collects raw data with three background threads and computes every metric from that data afterwards. Nothing is estimated.
+
+### Data collectors (`workload.py`)
+
+| Thread | Rate | What it records |
+|---|---|---|
+| Writer | 50/s | One row per transaction through HAProxy `:5000`, as `BEGIN` / `INSERT` / `COMMIT`. Every attempt goes into `ledger.jsonl` with its id, send time, done time and result. |
+| Reader | 10/s | A small query through HAProxy `:5001`: ok or failed, and which node answered. |
+| Node poller | 2/s | For every node over its direct port: `pg_is_in_recovery()`, the control-file timeline, and, if the node says it is a primary, a real probe `INSERT` + `COMMIT`. The same round records who Patroni's `/cluster` calls the leader. |
+
+Ledger results:
+
+- `acked`: the server confirmed `COMMIT`.
+- `failed`: an error before `COMMIT` was sent (connect failure, `INSERT` error). The row is certainly not committed.
+- `unknown`: `COMMIT` was sent and the connection broke before the answer came back. The row may or may not exist. This is the case every application has to handle after a failover.
+
+Nodes are identified by a custom GUC, `leaderfall.node_name`, set per node in `patroni.yml`. (`cluster_name` cannot be used: Patroni sets it to the scope on every node.)
+
+The poller reconnects to a dead node in the background. On Docker Desktop the published port of a dead container still accepts TCP connections, so a blocking reconnect would stretch every round to the timeout and ruin the 0.5 s resolution.
+
+### Metrics (`measure.py`)
+
+| Metric | Definition |
+|---|---|
+| Detection | Fault → first poller round in which Patroni reports a leader other than the old one. |
+| RTO write | Fault → first `acked` write after writes started failing. A write sent after the fault was requested but before the signal landed can still be acked by the dying primary; that does not end the outage. |
+| Write gap | Last ack before the outage → first ack after it. What a client feels. |
+| Read-only window | First write that reached the new primary while it was still in recovery → first ack. Those writes fail with `cannot execute INSERT in a read-only transaction`. |
+| RTO read | Longest gap between two successful reads. |
+| Lost acked commits (RPO) | Ids marked `acked` that are not in the table on the final primary. |
+| Unknown commits | Count of `unknown` ids, split into present and missing on the final primary. Reported, never a failure. |
+| Split brain | A poller round in which two nodes both committed the probe row. Rounds where two nodes said "not in recovery" but only one accepted the write are reported separately. |
+| Rejoin | `docker start` of the failed node → first round in which Patroni shows it `streaming` with lag 0. |
+| Diverged rows (max) | Lost acked + unknown-and-missing. An upper bound on the rows `pg_rewind` discarded. The run also records whether `pg_rewind` ran and the LSN it diverged at, from the node's log. |
+| Final state | One leader, two streaming replicas, same timeline, same row count on all nodes. |
+
+The fault time is the moment the `docker kill` was *requested*. The signal lands within tens of milliseconds; the Docker CLI then takes about half a second to return, and using that later time would hide part of the outage.
+
+### Output
+
+`reports/<UTC timestamp>-<scenario>/` holds `result.json` (config, versions, events, metrics, final state), `timeline.json`, `ledger.jsonl`, `rounds.jsonl` and `reads.jsonl`. The raw files are kept so any number in the report can be recomputed.

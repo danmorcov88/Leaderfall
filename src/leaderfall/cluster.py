@@ -62,8 +62,12 @@ HAPROXY_STATS_PORT = 7000
 
 
 def docker_host() -> str:
-    """Hostname where published container ports are reachable."""
-    return os.environ.get("LEADERFALL_HOST", "localhost")
+    """Address where published container ports are reachable.
+
+    An IP, not ``localhost``: with a hostname every failed connect is tried twice (IPv6
+    then IPv4), which doubles the time it takes to notice a dead node.
+    """
+    return os.environ.get("LEADERFALL_HOST", "127.0.0.1")
 
 
 def find_repo_root(start: Path | None = None) -> Path:
@@ -324,20 +328,28 @@ class PatroniClient:
     def __init__(self, nodes: tuple[Node, ...] = NODES, host: str | None = None) -> None:
         self.nodes = nodes
         self.host = host or docker_host()
-        self._http = httpx.Client(timeout=httpx.Timeout(2.0, connect=1.0))
+        # Short: a healthy node answers in milliseconds, and on Docker Desktop the published
+        # port of a dead container still accepts TCP, so only the read timeout ends a call.
+        self._http = httpx.Client(timeout=httpx.Timeout(1.0, connect=0.5))
+        self._preferred: Node | None = None  # last node that answered; asked first next time
 
     def url(self, node: Node, path: str) -> str:
         return f"http://{self.host}:{node.rest_port}{path}"
 
+    def _candidates(self) -> list[Node]:
+        first = self._preferred
+        return [n for n in self.nodes if n is first] + [n for n in self.nodes if n is not first]
+
     def _first_answer(self, path: str) -> httpx.Response:
         errors: list[str] = []
-        for node in self.nodes:
+        for node in self._candidates():
             try:
                 response = self._http.get(self.url(node, path))
             except httpx.HTTPError as exc:
                 errors.append(f"{node.name}: {exc.__class__.__name__}")
                 continue
             if response.status_code == 200:
+                self._preferred = node
                 return response
             errors.append(f"{node.name}: HTTP {response.status_code}")
         raise ClusterUnreachableError(f"no node answered GET {path}: {', '.join(errors)}")
@@ -351,7 +363,7 @@ class PatroniClient:
 
     def patch_config(self, patch: Mapping[str, Any]) -> dict[str, Any]:
         errors: list[str] = []
-        for node in self.nodes:
+        for node in self._candidates():
             try:
                 response = self._http.patch(self.url(node, "/config"), json=dict(patch))
             except httpx.HTTPError as exc:
@@ -400,7 +412,7 @@ class Compose:
     def up(self, *, build: bool = True) -> None:
         if build:
             self.build()
-        self._run("up", "-d", "--remove-orphans")
+        self._run("--progress", "quiet", "up", "-d", "--remove-orphans")
 
     def down(self, *, volumes: bool = False) -> None:
         args = ["down", "--remove-orphans"]
