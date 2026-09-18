@@ -14,9 +14,9 @@ profiles:
     detection_sec_max: 40
     rto_write_sec_max: 45
     demotion_sec_max: 40           # ttl: an isolated primary must stop taking writes within its lease
-  fast:                          # ttl 15 / loop_wait 5 / retry_timeout 5
-    detection_sec_max: 20
-    rto_write_sec_max: 25
+  fast:                          # ttl 20 (Patroni's minimum) / loop_wait 5 / retry_timeout 5
+    detection_sec_max: 25        # ttl + loop_wait
+    rto_write_sec_max: 30
     demotion_sec_max: 20
 
 sync:

@@ -26,6 +26,7 @@ class Limits(BaseModel):
     failover: bool | None = None  # must a new leader appear (True) or not (False)?
     detection_sec_max: float | None = None
     rto_write_sec_max: float | None = None
+    ack_gap_sec_max: float | None = None  # longest gap between two acked writes
     rto_read_sec_max: float | None = None
     rejoin_sec_max: float | None = None
     demotion_sec_max: float | None = None
@@ -114,6 +115,12 @@ def evaluate(metrics: Metrics, final: FinalTopology, limits: Limits) -> list[Che
         limits.rto_write_sec_max,
         metrics.write_outage.rto_write_sec,
         "writes never recovered",
+    )
+    if c:
+        checks.append(c)
+
+    c = _max_check(
+        "ack_gap_sec", limits.ack_gap_sec_max, metrics.write_outage.ack_gap_sec, "no acked write"
     )
     if c:
         checks.append(c)

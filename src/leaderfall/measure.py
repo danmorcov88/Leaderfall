@@ -54,6 +54,7 @@ class SplitBrainResult(BaseModel):
     detected: bool
     rounds: list[SplitBrainRound]  # rounds with two or more writable primaries
     multi_primary_rounds: list[SplitBrainRound]  # two primaries seen, but only one writable
+    window_sec: float | None = None  # first -> last such round; 0 means a single round
 
 
 class WriteOutage(BaseModel):
@@ -74,7 +75,11 @@ class WriteOutage(BaseModel):
     # Writes that reached the new primary before PostgreSQL finished the promotion. They
     # fail with "cannot execute INSERT in a read-only transaction".
     readonly_failures: int = 0
-    readonly_window_sec: float | None = None  # first such failure -> first ack after
+    readonly_window_sec: float | None = None  # first -> last write that hit a read-only node
+    # Stalls without errors (synchronous replication waiting for a standby) do not show up
+    # as failures. These two catch them.
+    ack_gap_sec: float | None = None  # longest gap between two acked writes, whole run
+    max_write_latency_sec: float | None = None  # slowest acked write (sent -> done)
 
 
 class FinalTopology(BaseModel):
@@ -94,11 +99,13 @@ class Metrics(BaseModel):
     old_leader: str | None
     new_leader: str | None  # None when no failover happened
     detection_sec: float | None
-    demotion_expected: bool = False  # the old primary stayed up (partition, freeze)
+    demotion_expected: bool = False  # the scenario waited for the old primary to fence itself
+    demotion_node: str | None = None
     demotion_sec: float | None  # fault -> the old primary stops accepting writes for good
     old_primary_last_write_sec: float | None = None  # fault -> its last accepted probe write
     write_outage: WriteOutage
     rto_read_sec: float | None
+    reads_on_primary: int = 0  # reads HAProxy sent to the primary because no replica was up
     rpo: RpoResult
     split_brain: SplitBrainResult
     rejoin_sec: float | None
@@ -131,9 +138,20 @@ def summarize_ledger(entries: Sequence[LedgerEntry]) -> LedgerSummary:
 READONLY_ERROR = "read-only transaction"
 
 
+def ack_gap(entries: Sequence[LedgerEntry]) -> tuple[float | None, float | None]:
+    """``(longest gap between consecutive acks, slowest acked write)`` over the whole run."""
+    acked = sorted((e for e in entries if e.result is WriteResult.ACKED), key=lambda e: e.done_at)
+    if not acked:
+        return None, None
+    gaps = [b.done_at - a.done_at for a, b in pairwise(acked)]
+    latency = max(e.done_at - e.sent_at for e in acked)
+    return (max(gaps) if gaps else 0.0), latency
+
+
 def write_outage(entries: Sequence[LedgerEntry], fault_at: float) -> WriteOutage:
     """RTO for writes: from the fault to the first ack after writes started failing."""
     ordered = sorted(entries, key=lambda e: e.sent_at)
+    gap, latency = ack_gap(ordered)
     first_failure = next(
         (e.sent_at for e in ordered if e.sent_at >= fault_at and e.result is not WriteResult.ACKED),
         None,
@@ -152,6 +170,8 @@ def write_outage(entries: Sequence[LedgerEntry], fault_at: float) -> WriteOutage
             gap_sec=0.0,
             failed_during_outage=0,
             unknown_during_outage=0,
+            ack_gap_sec=gap,
+            max_write_latency_sec=latency,
         )
 
     acked = [e for e in ordered if e.result is WriteResult.ACKED]
@@ -169,9 +189,9 @@ def write_outage(entries: Sequence[LedgerEntry], fault_at: float) -> WriteOutage
         failed_during_outage=sum(e.result is WriteResult.FAILED for e in in_window),
         unknown_during_outage=sum(e.result is WriteResult.UNKNOWN for e in in_window),
         readonly_failures=len(readonly),
-        readonly_window_sec=(
-            first_after - readonly[0].sent_at if readonly and first_after is not None else None
-        ),
+        readonly_window_sec=(readonly[-1].sent_at - readonly[0].sent_at) if readonly else None,
+        ack_gap_sec=gap,
+        max_write_latency_sec=latency,
     )
 
 
@@ -263,7 +283,12 @@ def split_brain(rounds: Sequence[PollRound]) -> SplitBrainResult:
             near.append(
                 SplitBrainRound(round=r.round, t=r.t, primaries=primaries, writable=writable)
             )
-    return SplitBrainResult(detected=bool(hits), rounds=hits, multi_primary_rounds=near)
+    return SplitBrainResult(
+        detected=bool(hits),
+        rounds=hits,
+        multi_primary_rounds=near,
+        window_sec=(hits[-1].t - hits[0].t) if hits else None,
+    )
 
 
 def rejoin_time(
