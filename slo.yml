@@ -1,0 +1,27 @@
+# Limits a scenario must meet. Merged in this order, later layers winning:
+#   defaults -> profiles.<patroni_profile> -> sync.<synchronous_mode> -> the scenario's expect block
+# A key set to null in a later layer disables that check (the value is reported only).
+
+defaults:
+  split_brain: false
+  final_topology: 1-leader-2-replicas
+  rto_read_sec_max: 10
+  rejoin_sec_max: 60
+  lost_acked_commits_max: null   # async replication may lose acked commits; report only
+
+profiles:
+  default:                       # ttl 30 / loop_wait 10 / retry_timeout 10
+    detection_sec_max: 40
+    rto_write_sec_max: 45
+    demotion_sec_max: 40           # ttl: an isolated primary must stop taking writes within its lease
+  fast:                          # ttl 15 / loop_wait 5 / retry_timeout 5
+    detection_sec_max: 20
+    rto_write_sec_max: 25
+    demotion_sec_max: 20
+
+sync:
+  "off": {}
+  "on":
+    lost_acked_commits_max: 0    # synchronous replication must never lose an acked commit
+  strict:
+    lost_acked_commits_max: 0
