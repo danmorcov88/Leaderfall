@@ -49,6 +49,9 @@ Repository = "https://github.com/danmorcov88/Leaderfall"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+leaderfall = ["templates/*", "py.typed"]
+
 [tool.ruff]
 target-version = "py312"
 line-length = 100
