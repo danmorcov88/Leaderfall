@@ -165,6 +165,21 @@ class _PacedThread(threading.Thread):
         pass
 
 
+def _container_status(container: str) -> str:
+    """``running``, ``paused``, ``exited``, ... or ``unknown``."""
+    try:
+        proc = subprocess.run(
+            ["docker", "inspect", "--format", "{{.State.Status}}", container],
+            capture_output=True,
+            text=True,
+            timeout=5.0,
+            check=False,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return "unknown"
+    return proc.stdout.strip() or "unknown"
+
+
 def _server_name(conn: psycopg.Connection[Any]) -> str | None:
     row = conn.execute(NODE_NAME_SQL).fetchone()
     return str(row[0]) if row and row[0] else None
@@ -272,8 +287,9 @@ class Writer(_PacedThread):
 class ReadSample(BaseModel):
     sent_at: float
     done_at: float
-    ok: bool
+    ok: bool  # the query returned
     server: str | None = None
+    on_primary: bool = False  # served by the primary (HAProxy fell back because no replica was up)
     error: str | None = None
 
 
@@ -295,7 +311,7 @@ class Reader(_PacedThread):
 
     def tick(self) -> None:
         sent_at = self.clock.now()
-        ok, server, error = False, None, None
+        ok, server, on_primary, error = False, None, False, None
         try:
             if self._conn is None or self._conn.closed:
                 self._conn = psycopg.connect(client_conninfo(self.port), autocommit=True)
@@ -303,14 +319,19 @@ class Reader(_PacedThread):
                 "select current_setting('leaderfall.node_name', true), pg_is_in_recovery()"
             ).fetchone()
             if row is not None:
-                server, ok = str(row[0]), bool(row[1])
+                server, on_primary, ok = str(row[0]), not bool(row[1]), True
         except psycopg.Error as exc:
             error = _error_text(exc)
             self.close()
         with self._lock:
             self.samples.append(
                 ReadSample(
-                    sent_at=sent_at, done_at=self.clock.now(), ok=ok, server=server, error=error
+                    sent_at=sent_at,
+                    done_at=self.clock.now(),
+                    ok=ok,
+                    server=server,
+                    on_primary=on_primary,
+                    error=error,
                 )
             )
 
@@ -335,6 +356,7 @@ class NodeSample(BaseModel):
     write_ok: bool | None = None  # probe write result; only attempted when in_recovery is False
     via: str = "tcp"  # "tcp" through the published port, "exec" through docker exec
     error: str | None = None
+    issued_round: int | None = None  # set when the sample was started in an earlier round
 
 
 STATE_SQL = "select pg_is_in_recovery(), (pg_control_checkpoint()).timeline_id"
@@ -368,14 +390,20 @@ class NodePoller(_PacedThread):
     probe row. Two nodes committing in the same round is the definition of split brain.
     The round also records who Patroni's ``/cluster`` endpoint reports as leader.
 
-    Nodes are sampled in parallel. A node that stops answering is reconnected in the
-    background and reported as unreachable until that succeeds, so a dead node never
-    stretches a round: on Docker Desktop the published port of a dead container still
-    accepts TCP connections, and only a timeout ends the attempt.
+    Every node has its own worker thread, and a round waits for a sample only briefly.
+    A sample that does not come back in time is reported as "no answer" in this round
+    and lands in the round in which it finally completes (marked with the round that
+    issued it). This is what keeps rounds at their period when a node is frozen: a
+    query to a paused container hangs, because the container's kernel still answers TCP
+    keepalives while its processes are stopped. When the container is thawed, the hung
+    query runs, and its probe write is the first thing the old primary does.
 
-    While the TCP path is down, the node is sampled through ``docker exec psql`` instead.
-    That is the only way to watch a node that was cut off the network: its published
-    port dies with its network endpoint, but the container keeps running.
+    A node that stops answering is reconnected in the background (on Docker Desktop the
+    published port of a dead container still accepts TCP connections, and only a timeout
+    ends the attempt). While the TCP path is down, the node is sampled through
+    ``docker exec psql`` instead. That is the only way to watch a node that was cut off
+    the network: its published port dies with its network endpoint, but the container
+    keeps running.
     """
 
     def __init__(
@@ -394,8 +422,14 @@ class NodePoller(_PacedThread):
         self._conns: dict[str, psycopg.Connection[Any]] = {}
         self._reconnects: dict[str, Future[psycopg.Connection[Any]]] = {}
         self._round = 0
-        self._pool = ThreadPoolExecutor(max_workers=len(nodes), thread_name_prefix="poll")
+        self._workers = {
+            n.name: ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"poll-{n.name}")
+            for n in nodes
+        }
+        self._inflight: dict[str, tuple[int, Future[NodeSample]]] = {}
         self._dialer = ThreadPoolExecutor(max_workers=len(nodes), thread_name_prefix="dial")
+        # How long a round waits for its samples: most of the period, never more.
+        self._sample_wait = min(0.4, self.period * 0.8)
 
     def snapshot(self) -> list[PollRound]:
         with self._lock:
@@ -465,6 +499,12 @@ class NodePoller(_PacedThread):
         what makes ``write_ok`` false.
         """
         sample = NodeSample(node=node.name, via="exec", error="reconnecting")
+        status = _container_status(node.container)
+        if status != "running":
+            # docker exec hangs on a paused container and fails at once on a stopped one;
+            # either way there is nothing to sample.
+            sample.error = f"container {status}"
+            return sample
         probe = PROBE_SQL.replace("%s", "'{}'").format(node.name, round_no)
         cmd = [
             "docker", "exec", node.container, "psql", "-U", "postgres", "-At",
@@ -505,19 +545,44 @@ class NodePoller(_PacedThread):
                 for m in state.members
             }
         round_no = self._round
-        rnd.nodes = list(self._pool.map(lambda n: self._sample_node(n, round_no), self.nodes))
+        deadline = time.monotonic() + self._sample_wait
+        for node in self.nodes:
+            if node.name not in self._inflight:
+                future = self._workers[node.name].submit(self._sample_node, node, round_no)
+                self._inflight[node.name] = (round_no, future)
+        for node in self.nodes:
+            issued, future = self._inflight[node.name]
+            try:
+                sample = future.result(timeout=max(0.0, deadline - time.monotonic()))
+            except TimeoutError:
+                rnd.nodes.append(
+                    NodeSample(
+                        node=node.name,
+                        error=f"no answer yet (asked in round {issued})",
+                        issued_round=issued,
+                    )
+                )
+                continue
+            del self._inflight[node.name]
+            if issued != round_no:
+                sample.issued_round = issued
+            rnd.nodes.append(sample)
         with self._lock:
             self.rounds.append(rnd)
 
     def close(self) -> None:
-        self._pool.shutdown(wait=True)
-        self._dialer.shutdown(wait=True)
-        for future in self._reconnects.values():
-            with contextlib.suppress(psycopg.Error):
-                future.result().close()
-        self._reconnects.clear()
+        # Never block on a worker whose query is hung inside a frozen container.
+        for executor in self._workers.values():
+            executor.shutdown(wait=False, cancel_futures=True)
+        self._dialer.shutdown(wait=False, cancel_futures=True)
+        for name, future in list(self._reconnects.items()):
+            if future.done():
+                with contextlib.suppress(psycopg.Error):
+                    future.result().close()
+            self._reconnects.pop(name, None)
         for node in self.nodes:
-            self._drop(node)
+            if node.name not in self._inflight:
+                self._drop(node)
 
 
 # --------------------------------------------------------------------------------------
