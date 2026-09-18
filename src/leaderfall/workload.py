@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import subprocess
 import threading
 import time
 from collections.abc import Iterator
@@ -326,13 +327,18 @@ class Reader(_PacedThread):
 
 
 class NodeSample(BaseModel):
-    """One node, one round, seen through a direct connection."""
+    """One node, one round, seen through a direct connection (or ``docker exec``)."""
 
     node: str
     in_recovery: bool | None = None  # None: not reachable
     timeline: int | None = None
     write_ok: bool | None = None  # probe write result; only attempted when in_recovery is False
+    via: str = "tcp"  # "tcp" through the published port, "exec" through docker exec
     error: str | None = None
+
+
+STATE_SQL = "select pg_is_in_recovery(), (pg_control_checkpoint()).timeline_id"
+PROBE_SQL = f"insert into {PROBE_TABLE} (node, round) values (%s, %s)"
 
 
 class PollRound(BaseModel):
@@ -366,6 +372,10 @@ class NodePoller(_PacedThread):
     background and reported as unreachable until that succeeds, so a dead node never
     stretches a round: on Docker Desktop the published port of a dead container still
     accepts TCP connections, and only a timeout ends the attempt.
+
+    While the TCP path is down, the node is sampled through ``docker exec psql`` instead.
+    That is the only way to watch a node that was cut off the network: its published
+    port dies with its network endpoint, but the container keeps running.
     """
 
     def __init__(
@@ -407,7 +417,12 @@ class NodePoller(_PacedThread):
         if not future.done():
             return None
         del self._reconnects[node.name]
-        conn = future.result()  # raises psycopg.Error if the dial failed; caller retries
+        try:
+            conn = future.result()
+        except psycopg.Error:
+            # Still unreachable over TCP: dial again in the background, sample via exec now.
+            self._reconnects[node.name] = self._dialer.submit(self._dial, node)
+            return None
         self._conns[node.name] = conn
         return conn
 
@@ -422,11 +437,8 @@ class NodePoller(_PacedThread):
         try:
             conn = self._conn(node)
             if conn is None:
-                sample.error = "reconnecting"
-                return sample
-            row = conn.execute(
-                "select pg_is_in_recovery(), (pg_control_checkpoint()).timeline_id"
-            ).fetchone()
+                return self._sample_via_exec(node, round_no)
+            row = conn.execute(STATE_SQL).fetchone()
         except psycopg.Error as exc:
             sample.error = _error_text(exc)
             self._drop(node)
@@ -437,14 +449,46 @@ class NodePoller(_PacedThread):
         if sample.in_recovery:
             return sample
         try:
-            conn.execute(
-                f"insert into {PROBE_TABLE} (node, round) values (%s, %s)", (node.name, round_no)
-            )
+            conn.execute(PROBE_SQL, (node.name, round_no))
             sample.write_ok = True
         except psycopg.Error as exc:
             sample.write_ok = False
             sample.error = f"probe: {_error_text(exc)}"
             self._drop(node)
+        return sample
+
+    @staticmethod
+    def _sample_via_exec(node: Node, round_no: int) -> NodeSample:
+        """One ``psql`` run inside the container: state query, then the probe write.
+
+        The probe fails on a standby ("read-only transaction"); that is expected and is
+        what makes ``write_ok`` false.
+        """
+        sample = NodeSample(node=node.name, via="exec", error="reconnecting")
+        probe = PROBE_SQL.replace("%s", "'{}'").format(node.name, round_no)
+        cmd = [
+            "docker", "exec", node.container, "psql", "-U", "postgres", "-At",
+            "-c", STATE_SQL, "-c", probe,
+        ]  # fmt: skip
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=3.0, check=False)
+        except subprocess.TimeoutExpired:
+            sample.error = "exec: no answer after 3s"
+            return sample
+        except OSError as exc:
+            sample.error = f"exec: {exc}"
+            return sample
+        lines = [line for line in proc.stdout.splitlines() if line.strip()]
+        if not lines or "|" not in lines[0]:
+            sample.error = f"exec: {' '.join(proc.stderr.split())[:160] or 'no output'}"
+            return sample
+        recovery, timeline = lines[0].split("|", 1)
+        sample.in_recovery, sample.timeline = recovery == "t", int(timeline)
+        sample.error = None
+        if not sample.in_recovery:
+            sample.write_ok = any(line.startswith("INSERT") for line in lines[1:])
+            if not sample.write_ok:
+                sample.error = f"probe: {' '.join(proc.stderr.split())[:160]}"
         return sample
 
     def tick(self) -> None:
