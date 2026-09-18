@@ -1,0 +1,90 @@
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "leaderfall"
+version = "0.0.1"
+description = "Break a PostgreSQL HA cluster on purpose, and prove with numbers that it survives."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Dan Morcov" }]
+requires-python = ">=3.12"
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Environment :: Console",
+  "Intended Audience :: System Administrators",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Database",
+  "Topic :: System :: Clustering",
+]
+dependencies = [
+  "docker==7.2.0",
+  "httpx==0.28.1",
+  "jinja2==3.1.6",
+  "psycopg[binary]==3.3.5",
+  "pydantic==2.13.5",
+  "pyyaml==6.0.3",
+  "rich==15.0.0",
+  "typer==0.27.2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "mypy==2.3.1",
+  "pytest==9.1.1",
+  "pytest-timeout==2.4.0",
+  "ruff==0.16.8",
+  "types-PyYAML==6.0.12.20260906",
+  "types-docker==7.2.0.20260827",
+]
+
+[project.scripts]
+leaderfall = "leaderfall.cli:app"
+
+[project.urls]
+Repository = "https://github.com/danmorcov88/Leaderfall"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+  "E", "W",   # pycodestyle
+  "F",        # pyflakes
+  "I",        # isort
+  "B",        # bugbear
+  "UP",       # pyupgrade
+  "N",        # pep8-naming
+  "SIM",      # simplify
+  "RUF",      # ruff-specific
+  "PT",       # pytest style
+  "T20",      # no stray print (CLI output goes through rich/typer)
+]
+ignore = [
+  "E501",     # line length is handled by the formatter
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["T20"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+files = ["src", "tests"]
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+  "integration: needs a running cluster (deselected by default in CI unit job)",
+]
+timeout = 60
