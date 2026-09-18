@@ -133,6 +133,41 @@ The poller reconnects to a dead node in the background. On Docker Desktop the pu
 
 The fault time is the moment the `docker kill` was *requested*. The signal lands within tens of milliseconds; the Docker CLI then takes about half a second to return, and using that later time would hide part of the outage.
 
+| Demotion | For faults that leave the old primary running (partition, freeze): fault → first poller round after which it never again committed the probe row. The moment it stopped taking writes, in Patroni's own words "Demoting self (offline)". |
+
 ### Output
 
-`reports/<UTC timestamp>-<scenario>/` holds `result.json` (config, versions, events, metrics, final state), `timeline.json`, `ledger.jsonl`, `rounds.jsonl` and `reads.jsonl`. The raw files are kept so any number in the report can be recomputed.
+`reports/<UTC timestamp>-<scenario>/` holds `result.json` (config, versions, events, metrics, SLO checks, final state), `timeline.json`, `ledger.jsonl`, `rounds.jsonl` and `reads.jsonl`. The raw files are kept so any number in the report can be recomputed. A suite run adds `reports/<UTC timestamp>-suite-<tag>/suite.json`.
+
+### Watching a node nobody can reach
+
+A node cut off the network keeps running, but its published port dies with its network endpoint. The poller then samples it through `docker exec psql` (one `psql` call: the state query, then the probe write). That is how `primary-partition` can show the isolated primary refusing writes 12 s after the partition and the new leader appearing 15 s later, and prove there was no overlap.
+
+## Scenario engine
+
+A scenario is a YAML file in `scenarios/`, validated by a pydantic model (`scenario.py`). The runner:
+
+1. runs `up` with the scenario's profile and sync mode (a no-op if the cluster already matches), empties the workload tables
+2. starts the poller, writer and reader and waits for the warm-up: `warmup_sec` elapsed *and* at least one acked write
+3. executes the steps in order
+4. stops the workload, waits for a healthy cluster with equal row counts on all nodes, computes the metrics, and checks them against the limits
+
+Steps:
+
+| Step | Meaning |
+|---|---|
+| `fault: <name>` / `action: <name>` with `target` | Run a fault primitive. The first `fault` sets the fault time and the "failed node". `start`, `unpause` and `heal` on the failed node set the recovery time for the rejoin metric. |
+| `wait_for: new_leader` | Patroni reports a leader other than the one before the fault. |
+| `wait_for: writes_ok` | The most recent write sent after the fault was acked. |
+| `wait_for: cluster_healthy` | One leader, two streaming replicas, same timeline, sync standby if sync mode is on. |
+| `wait_for: node_streaming` | The target (default: the failed node) is a streaming replica with lag at or under `max_lag_bytes`. |
+| `wait_for: node_fenced` | The target has not accepted a probe write in the last two poller rounds. |
+| `hold_sec: N` | Keep the workload running for N seconds. Part of the workload definition, not a wait. |
+
+Every wait has a `timeout_sec`. On a timeout or a fault error the runner records the error, does its best to bring the failed node back (unpause, start or reconnect, depending on the container's state), still waits for a healthy cluster, and reports the run as failed with whatever metrics it has.
+
+Targets are resolved when the step runs, from Patroni's `/cluster`: `primary`, `sync_replica`, `any_replica` (the lowest-named replica), `failed_node`, `haproxy`, `etcd-N`, or a node name.
+
+### SLO limits
+
+`slo.yml` holds limits in layers: `defaults`, then per Patroni profile, then per sync mode. The scenario's `expect` block is the last layer. Later layers win; a key set to `null` disables a check. Checks: `failover` (must or must not happen), `detection_sec_max`, `rto_write_sec_max`, `rto_read_sec_max`, `rejoin_sec_max` (only when a recovery action ran), `demotion_sec_max` (only when the old primary stayed up), `lost_acked_commits_max`, `split_brain`, `final_topology`. A scenario passes when every check passes and no step failed. The suite passes when every scenario passes; `leaderfall run` exits 1 otherwise, which is what fails CI.

@@ -8,7 +8,10 @@ Commands are added phase by phase:
 """
 
 import json
+import os
 import subprocess
+import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -30,11 +33,18 @@ from leaderfall.cluster import (
     SyncMode,
     WaitTimeoutError,
     expected_sync_standbys,
+    find_repo_root,
 )
-from leaderfall.report import write_run
-from leaderfall.scenario import RunResult, ScenarioError, ScenarioRunner, WorkloadSpec
-
-SCENARIOS = {"primary-sigkill"}
+from leaderfall.report import SuiteResult, SuiteRow, write_run, write_suite
+from leaderfall.scenario import (
+    RunResult,
+    ScenarioRunner,
+    ScenarioSpec,
+    find_scenario,
+    load_all,
+    scenarios_dir,
+)
+from leaderfall.slo import SloConfig
 
 app = typer.Typer(
     name="leaderfall",
@@ -42,8 +52,11 @@ app = typer.Typer(
     no_args_is_help=True,
     add_completion=False,
 )
-console = Console()
-err = Console(stderr=True)
+# Rich falls back to 80 columns when stdout is not a terminal (CI logs, pipes), which
+# squashes the result tables. Give it room unless the environment says otherwise.
+_WIDTH = None if sys.stdout.isatty() else int(os.environ.get("COLUMNS", "132"))
+console = Console(width=_WIDTH)
+err = Console(stderr=True, width=_WIDTH)
 
 
 def _print_version(value: bool) -> None:
@@ -179,13 +192,20 @@ def _fmt(value: float | None, unit: str = "s") -> str:
     return "-" if value is None else f"{value:.1f}{unit}"
 
 
+def _pf(passed: bool) -> str:
+    return "[green]pass[/green]" if passed else "[red]FAIL[/red]"
+
+
 def _result_table(r: RunResult) -> Table:
     m = r.metrics
     table = Table(title=f"{r.scenario}: {r.description}", title_justify="left")
     table.add_column("metric")
     table.add_column("value", justify="right")
     table.add_column("note")
-    table.add_row("old leader -> new leader", f"{m.old_leader} -> {m.new_leader}", "")
+    if m.new_leader:
+        table.add_row("failover", f"{m.old_leader} -> {m.new_leader}", "")
+    else:
+        table.add_row("failover", "none", f"leader stayed {m.old_leader}")
     table.add_row("detection", _fmt(m.detection_sec), "fault -> Patroni shows a new leader")
     table.add_row("RTO write", _fmt(m.write_outage.rto_write_sec), "fault -> first acked write")
     table.add_row("write gap", _fmt(m.write_outage.gap_sec), "last ack before -> first ack after")
@@ -213,12 +233,25 @@ def _result_table(r: RunResult) -> Table:
         f"{len(sb.rounds)} rounds with 2 writable primaries, "
         f"{len(sb.multi_primary_rounds)} with 2 primaries but 1 writable",
     )
-    table.add_row("rejoin", _fmt(m.rejoin_sec), "node start -> streaming with lag 0")
-    table.add_row(
-        "timeline",
-        f"{m.timeline_before} -> {m.timeline_after}",
-        f"pg_rewind ran: {r.rewind.get('ran')}, diverged at {r.rewind.get('diverged_at_lsn')}",
+    if m.demotion_expected:
+        last = _fmt(m.old_primary_last_write_sec)
+        table.add_row(
+            "demotion",
+            _fmt(m.demotion_sec),
+            f"fault -> {m.failed_node} stops taking writes (last accepted at {last})",
+        )
+    if m.failed_node:
+        table.add_row(
+            "rejoin",
+            _fmt(m.rejoin_sec),
+            f"{m.recovery_action or 'no action'} -> streaming with lag 0",
+        )
+    rewind_note = (
+        f"pg_rewind ran: {r.rewind.get('ran')}, diverged at {r.rewind.get('diverged_at_lsn')}"
+        if r.rewind
+        else ""
     )
+    table.add_row("timeline", f"{m.timeline_before} -> {m.timeline_after}", rewind_note)
     table.add_row(
         "ledger",
         f"{m.ledger.attempts}",
@@ -232,49 +265,142 @@ def _result_table(r: RunResult) -> Table:
     return table
 
 
+def _checks_table(r: RunResult) -> Table:
+    table = Table(title="SLO checks", title_justify="left")
+    table.add_column("check")
+    table.add_column("limit", justify="right")
+    table.add_column("actual", justify="right")
+    table.add_column("result")
+    table.add_column("note")
+    for c in r.checks:
+        table.add_row(c.name, str(c.limit), str(c.actual), _pf(c.passed), c.note or "")
+    return table
+
+
+SUITE_COLUMNS = (
+    "scenario", "result", "detect", "RTO w", "ro win", "RTO r",
+    "lost", "unk", "split", "demote", "rejoin", "failed checks",
+)  # fmt: skip
+
+
+def _suite_table(suite: SuiteResult) -> Table:
+    table = Table(title=f"suite '{suite.tag}'", title_justify="left")
+    for col in SUITE_COLUMNS:
+        left = col in {"scenario", "failed checks"}
+        table.add_column(col, justify="left" if left else "right")
+    for row in suite.rows:
+        table.add_row(
+            row.scenario,
+            _pf(row.passed),
+            _fmt(row.detection_sec),
+            _fmt(row.rto_write_sec),
+            _fmt(row.readonly_window_sec),
+            _fmt(row.rto_read_sec),
+            str(row.lost_acked_commits),
+            str(row.unknown_commits),
+            "YES" if row.split_brain else "no",
+            _fmt(row.demotion_sec),
+            _fmt(row.rejoin_sec),
+            ", ".join(row.failed_checks) + (f" ({row.error})" if row.error else ""),
+        )
+    return table
+
+
+def _run_one(
+    spec: ScenarioSpec, slo_config: SloConfig, reports_dir: Path | None, ensure_up: bool
+) -> RunResult:
+    runner = ScenarioRunner(
+        spec, slo_config=slo_config, reports_root=reports_dir, log=_log, ensure_up=ensure_up
+    )
+    result = runner.run()
+    write_run(result)
+    return result
+
+
+@app.command("list")
+def list_scenarios() -> None:
+    """List the scenarios in scenarios/."""
+    table = Table(title=str(scenarios_dir()), title_justify="left")
+    table.add_column("name")
+    table.add_column("tags")
+    table.add_column("profile")
+    table.add_column("sync")
+    table.add_column("description")
+    for spec in load_all():
+        table.add_row(
+            spec.name,
+            ", ".join(spec.tags),
+            spec.cluster.patroni_profile,
+            spec.cluster.synchronous_mode,
+            spec.description,
+        )
+    console.print(table)
+
+
 @app.command()
 def run(
-    scenario: Annotated[str, typer.Argument(help="Scenario name. Phase 2: primary-sigkill.")],
-    profile: Annotated[PatroniProfile, typer.Option(help="Patroni timing profile.")] = (
-        PatroniProfile.DEFAULT
-    ),
-    sync: Annotated[SyncMode, typer.Option(help="Synchronous replication mode.")] = SyncMode.OFF,
-    rate: Annotated[float, typer.Option(help="Writes per second.")] = 50.0,
-    warmup: Annotated[
-        float, typer.Option(help="Seconds of steady writes before the fault.")
-    ] = 15.0,
-    post_recovery: Annotated[
-        float, typer.Option(help="Seconds of writes after recovery before restarting the node.")
-    ] = 10.0,
+    scenario: Annotated[
+        str | None, typer.Argument(help="Scenario name (a file in scenarios/).")
+    ] = None,
+    all_: Annotated[bool, typer.Option("--all", help="Run every scenario with the tag.")] = False,
+    tag: Annotated[str, typer.Option(help="With --all: which tag to run (or 'all').")] = "core",
     reports_dir: Annotated[
         Path | None, typer.Option(help="Where to write reports (default: <repo>/reports).")
     ] = None,
+    slo_file: Annotated[
+        Path | None, typer.Option(help="SLO limits file (default: <repo>/slo.yml).")
+    ] = None,
     ensure_up: Annotated[
-        bool, typer.Option(help="Run `up` first so the cluster matches --profile/--sync.")
+        bool, typer.Option(help="Run `up` first so the cluster matches the scenario.")
     ] = True,
 ) -> None:
-    """Run one scenario against the cluster and write its report."""
-    if scenario not in SCENARIOS:
-        _fail(f"unknown scenario {scenario!r}; available: {', '.join(sorted(SCENARIOS))}")
-    runner = ScenarioRunner(
-        ClusterConfig(profile=profile, sync=sync),
-        WorkloadSpec(rate_per_sec=rate, warmup_sec=warmup, post_recovery_sec=post_recovery),
-        reports_root=reports_dir,
-        log=_log,
-        ensure_up=ensure_up,
-    )
+    """Run one scenario, or a whole suite with --all, and write the reports."""
+    if (scenario is None) == (not all_):
+        _fail("give a scenario name, or --all")
     try:
-        result = runner.run_primary_sigkill()
-    except (ScenarioError, FileNotFoundError, WaitTimeoutError) as exc:
+        slo_config = SloConfig.load(slo_file or find_repo_root() / "slo.yml")
+        specs = load_all(tag=tag) if all_ else [find_scenario(scenario or "")]
+    except (FileNotFoundError, ValueError) as exc:
         _fail(str(exc))
-    except subprocess.CalledProcessError as exc:
-        _fail(f"docker failed with exit code {exc.returncode}: {exc.stderr}")
-    else:
-        report_dir = write_run(result)
+        return
+    if not specs:
+        _fail(f"no scenarios with tag {tag!r}")
+
+    results: list[RunResult] = []
+    started = datetime.now(UTC).isoformat(timespec="seconds")
+    for spec in specs:
+        console.rule(spec.name)
+        try:
+            result = _run_one(spec, slo_config, reports_dir, ensure_up)
+        except (FileNotFoundError, WaitTimeoutError) as exc:
+            _fail(str(exc))
+            return
+        except subprocess.CalledProcessError as exc:
+            _fail(f"docker compose failed with exit code {exc.returncode}")
+            return
+        results.append(result)
         console.print(_result_table(result))
-        console.print(f"report: {report_dir}")
-        if not result.ok:
-            raise typer.Exit(1)
+        console.print(_checks_table(result))
+        if result.error:
+            console.print(f"[red]run aborted:[/red] {result.error}")
+        console.print(f"{_pf(result.passed)}  report: {result.report_dir}")
+
+    if all_:
+        suite = SuiteResult(
+            started_at=started,
+            finished_at=datetime.now(UTC).isoformat(timespec="seconds"),
+            tag=tag,
+            rows=[SuiteRow.from_result(r) for r in results],
+            passed=all(r.passed for r in results),
+            host=results[0].host,
+            versions=results[0].versions,
+        )
+        path = write_suite(suite, reports_dir or find_repo_root() / "reports")
+        console.rule("suite")
+        console.print(_suite_table(suite))
+        console.print(f"{_pf(suite.passed)}  suite report: {path}")
+    if not all(r.passed for r in results):
+        raise typer.Exit(1)
 
 
 @app.command()
