@@ -136,10 +136,18 @@ services:
     hostname: haproxy
     restart: unless-stopped
     networks: [cluster]
-    volumes:
-      - ./docker/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    # A `configs` entry, not a bind mount: Compose hashes the content, so editing the
+    # file and running `up` recreates the container. A bind mount would keep the old
+    # process running with the old config.
+    configs:
+      - source: haproxy_cfg
+        target: /usr/local/etc/haproxy/haproxy.cfg
     ports: ["5000:5000", "5001:5001", "7000:7000"]
     depends_on: [pg-1, pg-2, pg-3]
+
+configs:
+  haproxy_cfg:
+    file: ./docker/haproxy/haproxy.cfg
 
 networks:
   cluster:
