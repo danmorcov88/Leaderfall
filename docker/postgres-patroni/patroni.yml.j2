@@ -59,6 +59,7 @@ postgresql:
       password: {{ replication_password }}
   parameters:
     unix_socket_directories: /var/run/postgresql
+    leaderfall.node_name: {{ name }}  # custom GUC: lets a client ask which node it reached
     password_encryption: scram-sha-256
     log_line_prefix: "%m [%p] %u@%d "
     log_connections: "off"
