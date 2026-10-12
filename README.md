@@ -54,25 +54,25 @@ Seven containers on one Compose network: three PostgreSQL nodes managed by Patro
 The table between the markers is rewritten by the nightly workflow from the last full run on a GitHub runner. The full HTML report with a timeline per scenario is at **https://danmorcov88.github.io/Leaderfall/**. Times in seconds; "reported" checks (split brain after a thaw, lost commits in the stale-optime scenario) are deliberately not enforced, and the runbook says why.
 
 <!-- results:start -->
-Last full run: 2026-10-11T09:59:11+00:00, 16/16 passed, on Linux-6.17.0-1022-azure-x86_64-with-glibc2.39 (4 CPUs).
+Last full run: 2026-10-12T10:35:03+00:00, 16/16 passed, on Linux-6.17.0-1022-azure-x86_64-with-glibc2.39 (4 CPUs).
 
 | Scenario | Profile / sync | Result | Detection | RTO write | Commit stall | Lost acked | Unknown | Split brain | Fenced | Rejoin |
 |---|---|---|---|---|---|---|---|---|---|---|
-| `double-fault` | default / off | pass | 24.6 s | 27.1 s | 27.1 s | 0 | 0 | no | - | 2.3 s |
-| `etcd-one-member-loss` | default / off | pass | - | 0.0 s | 0.3 s | 0 | 0 | no | - | - |
-| `etcd-quorum-loss` | default / off | pass | - | 37.6 s | 25.0 s | 0 | 0 | no | 12.6 s | - |
-| `fast-profile-primary-sigkill` | fast / off | pass | 16.6 s | 20.2 s | 20.2 s | 0 | 0 | no | - | 2.2 s |
-| `haproxy-restart` | default / off | pass | - | 5.4 s | 0.4 s | 0 | 0 | no | - | - |
-| `lagging-replica-failover` | default / off | pass | - | 78.7 s | 66.5 s | 0 | 1 | no | - | 64.5 s |
-| `lagging-replica-stale-optime` | default / off | pass | 23.6 s | 27.1 s | 26.7 s | 5 | 0 | no | - | 0.1 s |
-| `planned-switchover` | default / off | pass | 7.6 s | 10.3 s | 4.4 s | 0 | 0 | no | - | - |
-| `primary-clean-stop` | default / off | pass | 1.8 s | 6.2 s | 6.2 s | 0 | 0 | no | - | 6.6 s |
-| `primary-frozen` | default / off | pass | 26.6 s | 29.1 s | 29.1 s | 0 | 0 | yes | 39.6 s | 4.8 s |
-| `primary-partition` | default / off | pass | 30.6 s | 34.0 s | 33.9 s | 0 | 0 | no | 16.6 s | 13.8 s |
-| `primary-sigkill` | default / off | pass | 31.1 s | 34.3 s | 34.2 s | 0 | 0 | no | - | 3.0 s |
-| `replica-loss` | default / off | pass | - | 0.0 s | 0.2 s | 0 | 0 | no | - | 1.1 s |
-| `sync-mode-primary-sigkill` | default / on | pass | 28.7 s | 30.2 s | 30.2 s | 0 | 0 | no | - | 4.1 s |
-| `sync-replica-loss-strict` | default / strict | pass | - | 0.0 s | 5.8 s | 0 | 0 | no | - | 2.0 s |
+| `double-fault` | default / off | pass | 21.1 s | 23.6 s | 23.6 s | 0 | 0 | no | - | 2.2 s |
+| `etcd-one-member-loss` | default / off | pass | - | 0.0 s | 0.1 s | 0 | 0 | no | - | - |
+| `etcd-quorum-loss` | default / off | pass | - | 39.4 s | 25.7 s | 0 | 0 | no | 14.1 s | - |
+| `fast-profile-primary-sigkill` | fast / off | pass | 16.1 s | 19.9 s | 19.9 s | 0 | 0 | no | - | 2.4 s |
+| `haproxy-restart` | default / off | pass | - | 5.4 s | 0.3 s | 0 | 0 | no | - | - |
+| `lagging-replica-failover` | default / off | pass | - | 74.7 s | 62.4 s | 0 | 0 | no | - | 62.8 s |
+| `lagging-replica-stale-optime` | default / off | pass | 27.1 s | 30.7 s | 30.5 s | 4 | 0 | no | - | 0.4 s |
+| `planned-switchover` | default / off | pass | 7.1 s | 9.8 s | 4.1 s | 0 | 0 | no | - | - |
+| `primary-clean-stop` | default / off | pass | 1.6 s | 7.7 s | 7.6 s | 0 | 0 | no | - | 5.1 s |
+| `primary-frozen` | default / off | pass | 27.1 s | 30.0 s | 30.0 s | 0 | 0 | yes | 40.6 s | 5.5 s |
+| `primary-partition` | default / off | pass | 29.6 s | 31.7 s | 31.6 s | 0 | 0 | no | 14.6 s | 14.8 s |
+| `primary-sigkill` | default / off | pass | 31.1 s | 33.3 s | 33.3 s | 0 | 0 | no | - | 3.1 s |
+| `replica-loss` | default / off | pass | - | 0.0 s | 0.1 s | 0 | 0 | no | - | 1.3 s |
+| `sync-mode-primary-sigkill` | default / on | pass | 28.0 s | 31.5 s | 31.4 s | 0 | 0 | no | - | 3.3 s |
+| `sync-replica-loss-strict` | default / strict | pass | - | 0.0 s | 5.9 s | 0 | 0 | no | - | 1.0 s |
 | `sync-replica-loss` | default / on | pass | - | 0.0 s | 5.9 s | 0 | 0 | no | - | 1.0 s |
 <!-- results:end -->
 
