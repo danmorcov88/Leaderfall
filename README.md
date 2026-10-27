@@ -54,26 +54,26 @@ Seven containers on one Compose network: three PostgreSQL nodes managed by Patro
 The table between the markers is rewritten by the nightly workflow from the last full run on a GitHub runner. The full HTML report with a timeline per scenario is at **https://danmorcov88.github.io/Leaderfall/**. Times in seconds; "reported" checks (split brain after a thaw, lost commits in the stale-optime scenario) are deliberately not enforced, and the runbook says why.
 
 <!-- results:start -->
-Last full run: 2026-10-26T08:52:09+00:00, 15/16 passed, on Linux-6.17.0-1022-azure-x86_64-with-glibc2.39 (4 CPUs).
+Last full run: 2026-10-27T08:57:43+00:00, 15/16 passed, on Linux-6.17.0-1022-azure-x86_64-with-glibc2.39 (4 CPUs).
 
 | Scenario | Profile / sync | Result | Detection | RTO write | Commit stall | Lost acked | Unknown | Split brain | Fenced | Rejoin |
 |---|---|---|---|---|---|---|---|---|---|---|
-| `double-fault` | default / off | pass | 29.6 s | 31.8 s | 31.8 s | 0 | 0 | no | - | 2.6 s |
-| `etcd-one-member-loss` | default / off | pass | - | 0.0 s | 0.4 s | 0 | 0 | no | - | - |
-| `etcd-quorum-loss` | default / off | pass | - | 47.2 s | 24.6 s | 0 | 0 | no | 22.6 s | - |
-| `fast-profile-primary-sigkill` | fast / off | pass | 16.6 s | 19.0 s | 18.8 s | 0 | 0 | no | - | 2.4 s |
-| `haproxy-restart` | default / off | pass | - | 6.3 s | 1.2 s | 0 | 0 | no | - | - |
-| `lagging-replica-failover` | default / off | pass | - | 78.7 s | 65.5 s | 0 | 0 | no | - | 62.9 s |
-| `lagging-replica-stale-optime` | default / off | FAIL | - | - | 0.2 s | 0 | 0 | no | - | - |
-| `planned-switchover` | default / off | pass | 7.1 s | 9.8 s | 4.1 s | 0 | 0 | no | - | - |
-| `primary-clean-stop` | default / off | pass | 1.6 s | 7.7 s | 7.6 s | 0 | 0 | no | - | 2.1 s |
-| `primary-frozen` | default / off | pass | 30.1 s | 32.5 s | 32.5 s | 0 | 1 | yes | 43.1 s | 6.4 s |
-| `primary-partition` | default / off | pass | 29.1 s | 31.2 s | 31.0 s | 0 | 0 | no | 15.1 s | 15.8 s |
-| `primary-sigkill` | default / off | pass | 30.1 s | 32.3 s | 32.3 s | 0 | 0 | no | - | 4.9 s |
-| `replica-loss` | default / off | pass | - | 0.0 s | 0.4 s | 0 | 0 | no | - | 0.9 s |
-| `sync-mode-primary-sigkill` | default / on | pass | 28.0 s | 31.6 s | 31.6 s | 0 | 0 | no | - | 3.2 s |
-| `sync-replica-loss-strict` | default / strict | pass | - | 0.0 s | 5.8 s | 0 | 0 | no | - | 1.0 s |
-| `sync-replica-loss` | default / on | pass | - | 0.0 s | 5.9 s | 0 | 0 | no | - | 2.0 s |
+| `double-fault` | default / off | pass | 21.6 s | 23.7 s | 23.7 s | 0 | 0 | no | - | 2.1 s |
+| `etcd-one-member-loss` | default / off | pass | - | 0.0 s | 0.0 s | 0 | 0 | no | - | - |
+| `etcd-quorum-loss` | default / off | pass | - | 35.8 s | 26.6 s | 0 | 0 | no | 9.6 s | - |
+| `fast-profile-primary-sigkill` | fast / off | pass | 16.6 s | 18.9 s | 18.9 s | 0 | 0 | no | - | 2.4 s |
+| `haproxy-restart` | default / off | pass | - | 6.1 s | 1.1 s | 0 | 0 | no | - | - |
+| `lagging-replica-failover` | default / off | pass | - | 78.7 s | 65.5 s | 0 | 0 | no | - | 63.1 s |
+| `lagging-replica-stale-optime` | default / off | FAIL | - | - | 0.0 s | 0 | 0 | no | - | - |
+| `planned-switchover` | default / off | pass | 7.1 s | 10.1 s | 4.4 s | 0 | 0 | no | - | - |
+| `primary-clean-stop` | default / off | pass | 1.6 s | 5.3 s | 5.2 s | 0 | 0 | no | - | 1.6 s |
+| `primary-frozen` | default / off | pass | 23.1 s | 25.9 s | 25.9 s | 0 | 0 | yes | 36.6 s | 4.5 s |
+| `primary-partition` | default / off | pass | 30.1 s | 32.8 s | 32.7 s | 0 | 0 | no | 16.1 s | 13.2 s |
+| `primary-sigkill` | default / off | pass | 32.1 s | 34.2 s | 34.2 s | 0 | 0 | no | - | 2.6 s |
+| `replica-loss` | default / off | pass | - | 0.0 s | 0.0 s | 0 | 0 | no | - | 1.7 s |
+| `sync-mode-primary-sigkill` | default / on | pass | 26.2 s | 29.6 s | 29.6 s | 0 | 0 | no | - | 2.8 s |
+| `sync-replica-loss-strict` | default / strict | pass | - | 0.0 s | 5.9 s | 0 | 0 | no | - | 1.4 s |
+| `sync-replica-loss` | default / on | pass | - | 0.0 s | 5.9 s | 0 | 0 | no | - | 1.4 s |
 <!-- results:end -->
 
 How to read it: *detection* is fault → Patroni shows a new leader; *RTO write* is fault → first acked write; *commit stall* is the longest gap between two acked writes (how a lost sync standby shows up, since it produces no errors); *fenced* is fault → the old primary stops taking writes; *rejoin* is the recovery action → streaming again with lag 0. `etcd-quorum-loss` keeps etcd down for 20 s and `lagging-replica-failover` stays leaderless for 60 s on purpose, so their RTO is the length of the scenario. `primary-frozen` is measured from the freeze; the node was frozen for ~37 s and fenced 0.3 s after the thaw. The fast-profile failure in the run above was 25.2 s against a 25.0 s limit that left no margin for the poller's 0.5 s sampling; the limit is `ttl + loop_wait + 2 s` now.
